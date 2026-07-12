@@ -32,19 +32,16 @@ struct AudioSeparatorTests {
                 .appendingPathComponent(modelName, isDirectory: true)
                 .appendingPathComponent(audioURL.deletingPathExtension().lastPathComponent, isDirectory: true)
             try fileManager.createDirectory(at: stemDirectory, withIntermediateDirectories: true)
-            try Data("vocals".utf8).write(to: stemDirectory.appendingPathComponent("vocals.mp3"))
-            try Data("music".utf8).write(to: stemDirectory.appendingPathComponent("no_vocals.mp3"))
+            try Data("vocals".utf8).write(to: stemDirectory.appendingPathComponent("vocals.wav"))
+            try Data("music".utf8).write(to: stemDirectory.appendingPathComponent("no_vocals.wav"))
         })
 
         let result = try workflow.separateAudio(at: audioURL)
 
-        #expect(capturedArguments.contains("--mp3"))
-        #expect(capturedArguments.contains("--mp3-bitrate"))
-        #expect(capturedArguments.contains("320"))
         #expect(capturedArguments.contains("--name"))
         #expect(capturedArguments.contains("htdemucs"))
-        #expect(result.vocalsURL.lastPathComponent == "input-vocals.mp3")
-        #expect(result.musicURL.lastPathComponent == "input-music.mp3")
+        #expect(result.vocalsURL.lastPathComponent == "vocals.wav")
+        #expect(result.musicURL.lastPathComponent == "music.wav")
         #expect(fileManager.fileExists(atPath: result.vocalsURL.path))
         #expect(fileManager.fileExists(atPath: result.musicURL.path))
 
@@ -84,8 +81,8 @@ struct AudioSeparatorTests {
                 .appendingPathComponent(modelName, isDirectory: true)
                 .appendingPathComponent(audioURL.deletingPathExtension().lastPathComponent, isDirectory: true)
             try fileManager.createDirectory(at: stemDirectory, withIntermediateDirectories: true)
-            try Data("vocals".utf8).write(to: stemDirectory.appendingPathComponent("vocals.mp3"))
-            try Data("music".utf8).write(to: stemDirectory.appendingPathComponent("no_vocals.mp3"))
+            try Data("vocals".utf8).write(to: stemDirectory.appendingPathComponent("vocals.wav"))
+            try Data("music".utf8).write(to: stemDirectory.appendingPathComponent("no_vocals.wav"))
         })
 
         let result = try workflow.separateAudio(
@@ -148,8 +145,8 @@ struct AudioSeparatorTests {
                     .appendingPathComponent(modelName, isDirectory: true)
                     .appendingPathComponent(audioURL.deletingPathExtension().lastPathComponent, isDirectory: true)
                 try fileManager.createDirectory(at: stemDirectory, withIntermediateDirectories: true)
-                try Data("vocals".utf8).write(to: stemDirectory.appendingPathComponent("vocals.mp3"))
-                try Data("music".utf8).write(to: stemDirectory.appendingPathComponent("no_vocals.mp3"))
+                try Data("vocals".utf8).write(to: stemDirectory.appendingPathComponent("vocals.wav"))
+                try Data("music".utf8).write(to: stemDirectory.appendingPathComponent("no_vocals.wav"))
             },
             logger: delegate
         )
@@ -190,8 +187,8 @@ struct AudioSeparatorTests {
                     .appendingPathComponent(modelName, isDirectory: true)
                     .appendingPathComponent(audioURL.deletingPathExtension().lastPathComponent, isDirectory: true)
                 try fileManager.createDirectory(at: stemDirectory, withIntermediateDirectories: true)
-                try Data("vocals".utf8).write(to: stemDirectory.appendingPathComponent("vocals.mp3"))
-                try Data("music".utf8).write(to: stemDirectory.appendingPathComponent("no_vocals.mp3"))
+                try Data("vocals".utf8).write(to: stemDirectory.appendingPathComponent("vocals.wav"))
+                try Data("music".utf8).write(to: stemDirectory.appendingPathComponent("no_vocals.wav"))
             },
             logger: delegate
         )

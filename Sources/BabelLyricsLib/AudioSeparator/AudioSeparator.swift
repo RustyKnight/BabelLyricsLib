@@ -27,9 +27,9 @@ public struct AudioSeparator {
         }
     }
 
-    /// Splits an audio file into vocal-only and music-only MP3 tracks.
+    /// Splits an audio file into vocal-only and music-only WAV tracks.
     ///
-    /// Output files are written alongside the input file as `<name>-vocals.mp3` and `<name>-music.mp3`.
+    /// Output files are written alongside the input file as `vocals.wav` and `music.wav`.
     ///
     /// - Parameters:
     ///   - audioURL: Local URL to the input audio file.
@@ -118,8 +118,6 @@ public struct AudioSeparator {
     ) throws -> AudioSeparatorResult {
         let arguments = [
             "--two-stems", "vocals",
-            "--mp3",
-            "--mp3-bitrate", "320",
             "--name", model.demucsName,
             "--out", outputDirectory.path,
             audioURL.path,
@@ -134,8 +132,8 @@ public struct AudioSeparator {
         let sourceStemDirectory = outputDirectory
             .appendingPathComponent(model.demucsName, isDirectory: true)
             .appendingPathComponent(audioURL.deletingPathExtension().lastPathComponent, isDirectory: true)
-        let sourceVocalsURL = sourceStemDirectory.appendingPathComponent("vocals.mp3")
-        let sourceMusicURL = sourceStemDirectory.appendingPathComponent("no_vocals.mp3")
+        let sourceVocalsURL = sourceStemDirectory.appendingPathComponent("vocals.wav")
+        let sourceMusicURL = sourceStemDirectory.appendingPathComponent("no_vocals.wav")
 
         guard fileManager.fileExists(atPath: sourceVocalsURL.path) else {
             throw AudioSeparatorError.missingDemucsOutput(sourceVocalsURL)
@@ -145,9 +143,8 @@ public struct AudioSeparator {
         }
 
         let destinationDirectory = audioURL.deletingLastPathComponent()
-        let baseName = audioURL.deletingPathExtension().lastPathComponent
-        let destinationVocalsURL = destinationDirectory.appendingPathComponent("\(baseName)-vocals.mp3")
-        let destinationMusicURL = destinationDirectory.appendingPathComponent("\(baseName)-music.mp3")
+        let destinationVocalsURL = destinationDirectory.appendingPathComponent("vocals.wav")
+        let destinationMusicURL = destinationDirectory.appendingPathComponent("music.wav")
 
         if fileManager.fileExists(atPath: destinationVocalsURL.path) {
             try fileManager.removeItem(at: destinationVocalsURL)
@@ -172,19 +169,24 @@ public struct AudioSeparator {
         process.arguments = ["python3", "-m", "demucs.separate"] + arguments
 
         logger?.debug("\(executable) \(commandArguments.joined(separator: " "))")
-        
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+
+        let logFileURL = fileManager.temporaryDirectory
+            .appendingPathComponent("BabelLyricsLib-demucs-\(UUID().uuidString).log")
+        fileManager.createFile(atPath: logFileURL.path, contents: nil)
+        let logHandle = try FileHandle(forWritingTo: logFileURL)
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = logHandle
+        process.standardError = logHandle
 
         try process.run()
         process.waitUntilExit()
+        try logHandle.close()
 
+        let outputData = try Data(contentsOf: logFileURL)
+        try? fileManager.removeItem(at: logFileURL)
+        let output = String(data: outputData, encoding: .utf8) ?? "Demucs command failed."
         guard process.terminationStatus == 0 else {
-            let errorData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderr = String(data: errorData, encoding: .utf8) ?? "Demucs command failed."
-            throw AudioSeparatorError.demucsCommandFailed(stderr)
+            throw AudioSeparatorError.demucsCommandFailed(output)
         }
     }
 }

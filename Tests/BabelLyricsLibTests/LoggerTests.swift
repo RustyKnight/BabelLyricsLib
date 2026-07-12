@@ -41,9 +41,16 @@ struct LoggerTests {
         )
 
         let formatted = message.formatted
-        #expect(formatted.contains("[⚠️]"))
-        #expect(formatted.contains("[AudioSeparator:separate(_:)@88]"))
-        #expect(formatted.hasSuffix(" demucs output missing"))
+        #expect(formatted.starts(with: "⚠️["))
+        #expect(formatted.contains("][AudioSeparator:separate(_:)@88]"))
+        #expect(formatted.hasSuffix("demucs output missing"))
+
+        let prefix = "⚠️["
+        let timestampPart = String(formatted.dropFirst(prefix.count)).split(separator: "]", maxSplits: 1).first.map(String.init) ?? ""
+        #expect(timestampPart.range(
+            of: #"^\d{4}\.\d{2}\.\d{2}@\d{2}:\d{2}:\d{2}\.\d{3}$"#,
+            options: .regularExpression
+        ) != nil)
     }
 
     @Test("Convenience methods map to expected log levels")

@@ -3,7 +3,7 @@ import Foundation
 /// Splits an audio file into non-silent segments using FFmpeg silence detection.
 ///
 /// Generated files are stored in the caller-provided output directory and are named
-/// `<source-name>-segment-<index>.<source-extension>`.
+/// `vocal-segment-<index>.<source-extension>`.
 public struct SegmentAudio {
     private let fileManager: FileManager
     private let ffmpegOverride: (([String]) throws -> String)?
@@ -70,7 +70,6 @@ public struct SegmentAudio {
         let segmentRanges = buildSegmentRanges(from: detectionOutput.silences, duration: detectionOutput.durationSeconds)
 
         let sourceExtension = audioURL.pathExtension.isEmpty ? "wav" : audioURL.pathExtension
-        let sourceBaseName = audioURL.deletingPathExtension().lastPathComponent
 
         var segments: [AudioSegment] = []
         segments.reserveCapacity(segmentRanges.count)
@@ -78,6 +77,7 @@ public struct SegmentAudio {
         let stopWatch = StopWatch().start()
         for (offset, range) in segmentRanges.enumerated() {
             let index = offset + 1
+            let segmentDuration = range.end - range.start
             let startTime = formatTime(range.start)
             let endTime = formatTime(range.end)
 
@@ -85,8 +85,14 @@ public struct SegmentAudio {
                 logger?.warning("Skip zero-duration segment at index \(index) (\(startTime) -> \(endTime))")
                 continue
             }
+            guard segmentDuration >= configuration.minimumSegmentDurationSeconds else {
+                logger?.warning(
+                    "Skip short segment at index \(index) (\(startTime) -> \(endTime), duration=\(segmentDuration))"
+                )
+                continue
+            }
 
-            let outputFileName = "\(sourceBaseName)-segment-\(String(format: "%04d", index)).\(sourceExtension)"
+            let outputFileName = "vocal-segment-\(String(format: "%04d", index)).\(sourceExtension)"
             let outputFileURL = outputDirectory.appendingPathComponent(outputFileName)
 
             try createSegment(

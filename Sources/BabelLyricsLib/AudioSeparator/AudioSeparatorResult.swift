@@ -2,9 +2,9 @@ import Foundation
 
 /// The output of an audio separation operation.
 public struct AudioSeparatorResult: Sendable {
-    /// The generated vocal-only MP3 file URL.
+    /// The generated vocal-only WAV file URL.
     public let vocalsURL: URL
-    /// The generated music-only MP3 file URL.
+    /// The generated music-only WAV file URL.
     public let musicURL: URL
 
     /// Creates a separation result.

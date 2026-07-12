@@ -82,20 +82,22 @@ public extension LogMessage {
             .last ?? "[Unknown]"
         ).replacingOccurrences(of: ".swift", with: "")
         
-        var formattedMessage = "["
-        formattedMessage += timeStamp.formatted(
-            date: .numeric,
-            time: .shortened
-        )
-        formattedMessage += "]["
-        formattedMessage += level.token
+        var formattedMessage = "\(level.token)["
+        formattedMessage += Self.timestampFormatter.string(from: timeStamp)
         formattedMessage += "]["
         formattedMessage += "\(fileName):\(function)@\(line)"
         formattedMessage += "]"
-        formattedMessage += " \(self.message)"
+        formattedMessage += "\t\n\(self.message)"
         
         return formattedMessage
     }
+
+    private static let timestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy.MM.dd@HH:mm:ss.SSS"
+        return formatter
+    }()
 }
 
 public extension StaticString {

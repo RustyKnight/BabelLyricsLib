@@ -16,7 +16,7 @@ struct SegmentAudioTests {
         let audioURL = workspace.appendingPathComponent("song.mp3")
         try Data("audio".utf8).write(to: audioURL)
 
-        let staleSegment = outputDirectory.appendingPathComponent("song-segment-0001.mp3")
+        let staleSegment = outputDirectory.appendingPathComponent("vocal-segment-0001.mp3")
         try Data("stale".utf8).write(to: staleSegment)
         let unrelatedFile = outputDirectory.appendingPathComponent("keep.txt")
         try Data("keep".utf8).write(to: unrelatedFile)
@@ -146,6 +146,42 @@ struct SegmentAudioTests {
         let result = try workflow.segmentAudio(at: audioURL, outputDirectory: outputDirectory)
 
         #expect(result.sourceAudioDuration == .seconds(316.9704))
+        #expect(result.segments.isEmpty)
+        #expect(segmentCommandCount == 0)
+    }
+
+    @Test("Skips tiny segments that are below minimum segment duration")
+    func skipsTinySegmentsBelowMinimumDuration() throws {
+        let fileManager = FileManager.default
+        let workspace = fileManager.temporaryDirectory
+            .appendingPathComponent("SegmentAudioTests-\(UUID().uuidString)", isDirectory: true)
+        let outputDirectory = workspace.appendingPathComponent("output", isDirectory: true)
+        try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: workspace) }
+
+        let audioURL = workspace.appendingPathComponent("episode.mp3")
+        try Data("audio".utf8).write(to: audioURL)
+
+        var segmentCommandCount = 0
+        let workflow = SegmentAudio(
+            ffmpegOverride: { arguments in
+                if arguments.contains("-af") {
+                    return """
+                    Duration: 00:03:49.015, start: 0.000000, bitrate: 192 kb/s
+                    [silencedetect @ 0x0] silence_start: 0
+                    [silencedetect @ 0x0] silence_end: 229.014 | silence_duration: 229.014
+                    [silencedetect @ 0x0] silence_start: 229.015
+                    [silencedetect @ 0x0] silence_end: 229.015 | silence_duration: 0.000
+                    """
+                }
+
+                segmentCommandCount += 1
+                return ""
+            }
+        )
+
+        let result = try workflow.segmentAudio(at: audioURL, outputDirectory: outputDirectory)
+
         #expect(result.segments.isEmpty)
         #expect(segmentCommandCount == 0)
     }
