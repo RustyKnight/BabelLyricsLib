@@ -163,7 +163,7 @@ struct AudioSeparatorTests {
         #expect(loggedMessages.contains("Make use of provided temporary directory"))
         #expect(loggedMessages.contains("Start separating audio"))
         #expect(loggedMessages.contains("Execute override Demucs"))
-        #expect(loggedMessages.contains("Completed separating audio"))
+        #expect(loggedMessages.contains(where: { $0.hasPrefix("Completed separating audio in ") }))
     }
 
     @Test("Emits cleanup logs when using transient temporary directory")
