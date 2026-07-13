@@ -87,7 +87,7 @@ public extension LogMessage {
         formattedMessage += "]["
         formattedMessage += "\(fileName):\(function)@\(line)"
         formattedMessage += "]"
-        formattedMessage += "\t\n\(self.message)"
+        formattedMessage += "\n  \(self.message)"
         
         return formattedMessage
     }

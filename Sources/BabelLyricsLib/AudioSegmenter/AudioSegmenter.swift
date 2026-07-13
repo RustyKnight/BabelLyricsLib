@@ -3,7 +3,7 @@ import Foundation
 /// Splits an audio file into non-silent segments using FFmpeg silence detection.
 ///
 /// Generated files are stored in the caller-provided output directory and are named
-/// `vocal-segment-<index>.<source-extension>`.
+/// `vocal-segment-<index>.wav`.
 public struct AudioSegmenter {
     private let fileManager: FileManager
     private let ffmpegOverride: (([String]) throws -> String)?
@@ -61,7 +61,12 @@ public struct AudioSegmenter {
         logger?.debug("Clean output directory as required")
         try removeExistingSegmentFiles(in: outputDirectory)
 
-        let detectionOutput = try detectSilences(audioURL: audioURL, configuration: configuration)
+        logger?.debug("Convert source audio to mono")
+        let monoAudioURL = outputDirectory
+            .appendingPathComponent("\(audioURL.deletingPathExtension().lastPathComponent)-mono.wav")
+        try createMonoAudio(sourceAudioURL: audioURL, monoAudioURL: monoAudioURL)
+
+        let detectionOutput = try detectSilences(audioURL: monoAudioURL, configuration: configuration)
         
         logger?.debug("Detected duration: \(detectionOutput.durationSeconds)")
         logger?.debug("Detected silences: \(detectionOutput.silences.count)")
@@ -69,8 +74,7 @@ public struct AudioSegmenter {
         logger?.debug("Build segments")
         let segmentRanges = buildSegmentRanges(from: detectionOutput.silences, duration: detectionOutput.durationSeconds)
 
-        let sourceExtension = audioURL.pathExtension.isEmpty ? "wav" : audioURL.pathExtension
-        let segmentSourceURL = outputDirectory.appendingPathComponent("source.\(sourceExtension)")
+        let segmentSourceURL = monoAudioURL
 
         var segments: [AudioSegment] = []
         segments.reserveCapacity(segmentRanges.count)
@@ -96,7 +100,7 @@ public struct AudioSegmenter {
             let outputFileURL = AudioSegment.segmentFileURL(from: segmentSourceURL, index: index)
 
             try createSegment(
-                sourceAudioURL: audioURL,
+                sourceAudioURL: monoAudioURL,
                 startTime: startTime,
                 endTime: endTime,
                 outputFileURL: outputFileURL
@@ -190,6 +194,21 @@ public struct AudioSegmenter {
             "-to", endTime,
             "-c", "copy",
             outputFileURL.path
+        ])
+    }
+
+    private func createMonoAudio(
+        sourceAudioURL: URL,
+        monoAudioURL: URL
+    ) throws {
+        logger?.debug("Create mono source file at \(monoAudioURL.lastPathComponent)")
+        _ = try runFFmpeg([
+            "-hide_banner",
+            "-y",
+            "-i", sourceAudioURL.path,
+            "-vn",
+            "-ac", "1",
+            monoAudioURL.path,
         ])
     }
 

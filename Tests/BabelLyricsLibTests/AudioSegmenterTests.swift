@@ -23,6 +23,7 @@ struct AudioSegmenterTests {
 
         var detectionArguments: [String] = []
         var segmentOutputFiles: [String] = []
+        var monoOutputPath: String?
 
         let workflow = AudioSegmenter(
             ffmpegOverride: { arguments in
@@ -37,6 +38,12 @@ struct AudioSegmenterTests {
                     """
                 }
 
+                if arguments.contains("-ac"), arguments.last?.hasSuffix("-mono.wav") == true {
+                    monoOutputPath = arguments.last
+                    try Data("mono".utf8).write(to: URL(fileURLWithPath: arguments.last!))
+                    return ""
+                }
+
                 let outputPath = arguments.last!
                 segmentOutputFiles.append(outputPath)
                 try Data("segment".utf8).write(to: URL(fileURLWithPath: outputPath))
@@ -47,7 +54,9 @@ struct AudioSegmenterTests {
         let result = try workflow.segmentAudio(at: audioURL, outputDirectory: outputDirectory)
 
         #expect(detectionArguments.contains("silencedetect=n=-35.0dB:d=0.35"))
-        #expect(String(decoding: try Data(contentsOf: staleSegment), as: UTF8.self) == "segment")
+        #expect(detectionArguments.contains("\(outputDirectory.path)/song-mono.wav"))
+        #expect(monoOutputPath == "\(outputDirectory.path)/song-mono.wav")
+        #expect(!fileManager.fileExists(atPath: staleSegment.path))
         #expect(fileManager.fileExists(atPath: unrelatedFile.path))
 
         #expect(result.sourceAudioDuration == .seconds(5))
@@ -63,7 +72,7 @@ struct AudioSegmenterTests {
 
         for segment in result.segments {
             let segmentURL = AudioSegment.segmentFileURL(
-                from: outputDirectory.appendingPathComponent("source.mp3"),
+                from: outputDirectory.appendingPathComponent("song-mono.wav"),
                 index: segment.index
             )
             #expect(fileManager.fileExists(atPath: segmentURL.path))
@@ -90,6 +99,11 @@ struct AudioSegmenterTests {
                     return "Duration: 00:00:02.250, start: 0.000000, bitrate: 192 kb/s"
                 }
 
+                if arguments.contains("-ac"), arguments.last?.hasSuffix("-mono.wav") == true {
+                    try Data("mono".utf8).write(to: URL(fileURLWithPath: arguments.last!))
+                    return ""
+                }
+
                 try Data("segment".utf8).write(to: URL(fileURLWithPath: arguments.last!))
                 return ""
             }
@@ -106,6 +120,7 @@ struct AudioSegmenterTests {
 
         #expect(fileManager.fileExists(atPath: outputDirectory.path))
         #expect(detectionArguments.contains("silencedetect=n=-20.0dB:d=0.5"))
+        #expect(detectionArguments.contains("\(outputDirectory.path)/voice-mono.wav"))
         #expect(result.sourceAudioDuration == .seconds(2.25))
         #expect(result.segments.count == 1)
         #expect(result.segments[0].startTime == "0.000")
@@ -133,6 +148,7 @@ struct AudioSegmenterTests {
         try Data("audio".utf8).write(to: audioURL)
 
         var segmentCommandCount = 0
+        var monoCommandCount = 0
         let workflow = AudioSegmenter(
             ffmpegOverride: { arguments in
                 if arguments.contains("-af") {
@@ -141,6 +157,12 @@ struct AudioSegmenterTests {
                     [silencedetect @ 0x0] silence_start: 0
                     [silencedetect @ 0x0] silence_end: 316.970 | silence_duration: 316.970
                     """
+                }
+
+                if arguments.contains("-ac"), arguments.last?.hasSuffix("-mono.wav") == true {
+                    monoCommandCount += 1
+                    try Data("mono".utf8).write(to: URL(fileURLWithPath: arguments.last!))
+                    return ""
                 }
 
                 segmentCommandCount += 1
@@ -154,6 +176,7 @@ struct AudioSegmenterTests {
         #expect(result.sourceAudioDuration == .seconds(316.9704))
         #expect(result.segments.isEmpty)
         #expect(segmentCommandCount == 0)
+        #expect(monoCommandCount == 1)
     }
 
     @Test("Skips tiny segments that are below minimum segment duration")
@@ -169,6 +192,7 @@ struct AudioSegmenterTests {
         try Data("audio".utf8).write(to: audioURL)
 
         var segmentCommandCount = 0
+        var monoCommandCount = 0
         let workflow = AudioSegmenter(
             ffmpegOverride: { arguments in
                 if arguments.contains("-af") {
@@ -181,6 +205,11 @@ struct AudioSegmenterTests {
                     """
                 }
 
+                if arguments.contains("-ac"), arguments.last?.hasSuffix("-mono.wav") == true {
+                    monoCommandCount += 1
+                    return ""
+                }
+
                 segmentCommandCount += 1
                 return ""
             }
@@ -190,6 +219,7 @@ struct AudioSegmenterTests {
 
         #expect(result.segments.isEmpty)
         #expect(segmentCommandCount == 0)
+        #expect(monoCommandCount == 1)
     }
 
     @Test("Generates segment paths from source URL and index")

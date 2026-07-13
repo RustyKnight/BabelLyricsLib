@@ -118,7 +118,8 @@ public struct AudioTranscriber {
         for segment in segmentAudioResult.segments {
             let segmentURL = AudioSegment.segmentFileURL(from: audioSegmentSourceURL, index: segment.index)
             guard fileManager.fileExists(atPath: segmentURL.path) else {
-                throw AudioTranscriberError.segmentFileMissing(segmentURL)
+                logger?.warning("Skip missing segment file at \(segmentURL.lastPathComponent)")
+                continue
             }
 
             let segmentOffsetSeconds = try seconds(from: segment.startTime)
