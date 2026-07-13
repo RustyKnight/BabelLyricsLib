@@ -63,4 +63,21 @@ public struct AudioSegmenterModel: Codable, Sendable {
         self.sourceAudioDuration = sourceAudioDuration
         self.segments = segments
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case sourceAudioDuration
+        case segments
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sourceAudioDuration = DurationCodec.decode(try container.decode(Double.self, forKey: .sourceAudioDuration))
+        segments = try container.decode([AudioSegment].self, forKey: .segments)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(DurationCodec.encode(sourceAudioDuration), forKey: .sourceAudioDuration)
+        try container.encode(segments, forKey: .segments)
+    }
 }

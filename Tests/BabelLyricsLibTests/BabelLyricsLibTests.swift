@@ -4,7 +4,16 @@ import Foundation
 
 @Suite("Audio separation workflow")
 struct AudioSeparatorTests {
-    @Test("Uses htdemucs by default, writes output names, and cleans auto temp directory")
+    @Test("Demucs model enum maps to expected demucs names")
+    func demucsModelNames() {
+        #expect(AudioSeparator.DemucsModel.htdemucs.demucsName == "htdemucs")
+        #expect(AudioSeparator.DemucsModel.htdemucsFT.demucsName == "htdemucs_ft")
+        #expect(AudioSeparator.DemucsModel.htdemucs6s.demucsName == "htdemucs_6s")
+        #expect(AudioSeparator.DemucsModel.mdxExtra.demucsName == "mdx_extra")
+        #expect(AudioSeparator.DemucsModel.mdxExtraQ.demucsName == "mdx_extra_q")
+    }
+
+    @Test("Uses htdemucs by default without extra demucs flags, writes output names, and cleans auto temp directory")
     func separatesUsingDefaultModel() throws {
         let fileManager = FileManager.default
         let audioDirectory = fileManager.temporaryDirectory
@@ -40,6 +49,10 @@ struct AudioSeparatorTests {
 
         #expect(capturedArguments.contains("--name"))
         #expect(capturedArguments.contains("htdemucs"))
+        #expect(argumentValue("--segment", in: capturedArguments) == nil)
+        #expect(argumentValue("--overlap", in: capturedArguments) == nil)
+        #expect(argumentValue("--shifts", in: capturedArguments) == nil)
+        #expect(argumentValue("--jobs", in: capturedArguments) == nil)
         #expect(result.vocalsURL.lastPathComponent == "vocals.wav")
         #expect(result.musicURL.lastPathComponent == "music.wav")
         #expect(fileManager.fileExists(atPath: result.vocalsURL.path))
@@ -87,14 +100,84 @@ struct AudioSeparatorTests {
 
         let result = try workflow.separateAudio(
             at: audioURL,
-            model: .mdxExtraQ,
+            configuration: .init(model: .mdxExtraQ, segment: 48, overlap: 0.5, shifts: 2, jobs: 4),
             temporaryDirectory: providedTemporaryDirectory
         )
 
         #expect(capturedArguments.contains("mdx_extra_q"))
+        #expect(argumentValue("--segment", in: capturedArguments) == "48")
+        #expect(argumentValue("--overlap", in: capturedArguments) == "0.5")
+        #expect(argumentValue("--shifts", in: capturedArguments) == "2")
+        #expect(argumentValue("--jobs", in: capturedArguments) == "4")
         #expect(fileManager.fileExists(atPath: result.vocalsURL.path))
         #expect(fileManager.fileExists(atPath: result.musicURL.path))
         #expect(fileManager.fileExists(atPath: providedTemporaryDirectory.path))
+    }
+
+    @Test("Rejects overlap outside 0.0 to 0.99")
+    func rejectsInvalidDemucsOverlap() throws {
+        let fileManager = FileManager.default
+        let audioDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("BabelLyricsLibTests-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: audioDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: audioDirectory) }
+
+        let audioURL = audioDirectory.appendingPathComponent("input.wav")
+        try Data("demo".utf8).write(to: audioURL)
+
+        let workflow = AudioSeparator(demucsOverride: { _ in
+            Issue.record("Demucs should not execute when configuration is invalid")
+        })
+
+        do {
+            _ = try workflow.separateAudio(
+                at: audioURL,
+                configuration: .init(overlap: 1.0)
+            )
+            Issue.record("Expected invalidDemucsConfiguration error")
+        } catch let error as AudioSeparatorError {
+            switch error {
+            case .invalidDemucsConfiguration:
+                break
+            default:
+                Issue.record("Expected invalidDemucsConfiguration but got \(error)")
+            }
+        } catch {
+            Issue.record("Expected AudioSeparatorError but got \(error)")
+        }
+    }
+
+    @Test("Rejects jobs less than or equal to zero")
+    func rejectsInvalidDemucsJobs() throws {
+        let fileManager = FileManager.default
+        let audioDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("BabelLyricsLibTests-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: audioDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: audioDirectory) }
+
+        let audioURL = audioDirectory.appendingPathComponent("input.wav")
+        try Data("demo".utf8).write(to: audioURL)
+
+        let workflow = AudioSeparator(demucsOverride: { _ in
+            Issue.record("Demucs should not execute when configuration is invalid")
+        })
+
+        do {
+            _ = try workflow.separateAudio(
+                at: audioURL,
+                configuration: .init(jobs: 0)
+            )
+            Issue.record("Expected invalidDemucsConfiguration error")
+        } catch let error as AudioSeparatorError {
+            switch error {
+            case .invalidDemucsConfiguration:
+                break
+            default:
+                Issue.record("Expected invalidDemucsConfiguration but got \(error)")
+            }
+        } catch {
+            Issue.record("Expected AudioSeparatorError but got \(error)")
+        }
     }
 
     @Test("Rejects non-file URLs")
@@ -215,6 +298,13 @@ struct AudioSeparatorTests {
         #expect(delegate.messages.last?.level.description == "error")
         #expect(delegate.messages.last?.message == "Audio source must be a file")
     }
+}
+
+private func argumentValue(_ name: String, in arguments: [String]) -> String? {
+    guard let index = arguments.firstIndex(of: name), arguments.indices.contains(index + 1) else {
+        return nil
+    }
+    return arguments[index + 1]
 }
 
 private final class AudioSeparatorCapturingLogDelegate: LogDelegate {

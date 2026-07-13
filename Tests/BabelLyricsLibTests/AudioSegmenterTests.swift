@@ -112,6 +112,8 @@ struct AudioSegmenterTests {
         #expect(result.segments[0].endTime == "2.250")
 
         let encoded = try JSONEncoder().encode(result)
+        let encodedObject = try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        #expect((encodedObject?["sourceAudioDuration"] as? Double) == 2.25)
         let decoded = try JSONDecoder().decode(AudioSegmenterModel.self, from: encoded)
         #expect(decoded.sourceAudioDuration == result.sourceAudioDuration)
         #expect(decoded.segments.count == result.segments.count)

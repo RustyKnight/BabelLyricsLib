@@ -12,4 +12,6 @@ public enum AudioSeparatorError: Error {
     case missingDemucsOutput(URL)
     /// Cleanup of an auto-created temporary directory failed.
     case failedToRemoveTemporaryDirectory(URL, String)
+    /// Demucs configuration is invalid.
+    case invalidDemucsConfiguration(String)
 }

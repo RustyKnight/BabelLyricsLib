@@ -114,6 +114,12 @@ struct AudioTranscriberTests {
         #expect(autoTempRemoved)
 
         let encoded = try JSONEncoder().encode(result)
+        let encodedObject = try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        #expect((encodedObject?["sourceAudioDuration"] as? Double) == 12)
+        let lines = encodedObject?["lines"] as? [[String: Any]]
+        let firstLine = lines?.first
+        #expect((firstLine?["startTime"] as? Double) == 2.1)
+        #expect((firstLine?["endTime"] as? Double) == 3.25)
         let decoded = try JSONDecoder().decode(AudioTranscriberModel.self, from: encoded)
         #expect(decoded.lines.count == result.lines.count)
         #expect(decoded.lines[0].words[0].text == result.lines[0].words[0].text)

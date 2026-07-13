@@ -33,7 +33,7 @@ public struct AudioSeparator {
     ///
     /// - Parameters:
     ///   - audioURL: Local URL to the input audio file.
-    ///   - model: Demucs model to use. Defaults to ``AudioSeparator/DemucsModel/htdemucs``.
+    ///   - configuration: Optional Demucs command configuration. Defaults to ``AudioSeparator/DemucsConfiguration``.
     ///   - temporaryDirectory: Optional output working directory for Demucs intermediate output.
     ///     When omitted, a temporary directory is created and removed after processing.
     ///
@@ -44,7 +44,7 @@ public struct AudioSeparator {
     /// - Throws: ``AudioSeparatorError`` or filesystem/process errors.
     public func separateAudio(
         at audioURL: URL,
-        model: AudioSeparator.DemucsModel = .htdemucs,
+        configuration: AudioSeparator.DemucsConfiguration = .init(),
         temporaryDirectory: URL? = nil
     ) throws -> AudioSeparatorModel {
         guard audioURL.isFileURL else {
@@ -54,6 +54,23 @@ public struct AudioSeparator {
         guard fileManager.fileExists(atPath: audioURL.path) else {
             logger?.error("Audio source is missing")
             throw AudioSeparatorError.inputFileMissing(audioURL)
+        }
+
+        if let segment = configuration.segment, segment <= 0 {
+            logger?.error("Demucs segment must be greater than zero")
+            throw AudioSeparatorError.invalidDemucsConfiguration("segment must be greater than 0")
+        }
+        if let shifts = configuration.shifts, shifts <= 0 {
+            logger?.error("Demucs shifts must be greater than zero")
+            throw AudioSeparatorError.invalidDemucsConfiguration("shifts must be greater than 0")
+        }
+        if let jobs = configuration.jobs, jobs <= 0 {
+            logger?.error("Demucs jobs must be greater than zero")
+            throw AudioSeparatorError.invalidDemucsConfiguration("jobs must be greater than 0")
+        }
+        if let overlap = configuration.overlap, !(0.0...0.99).contains(overlap) {
+            logger?.error("Demucs overlap must be between 0.0 and 0.99")
+            throw AudioSeparatorError.invalidDemucsConfiguration("overlap must be between 0.0 and 0.99")
         }
 
         let shouldCleanupTemporaryDirectory = temporaryDirectory == nil
@@ -77,7 +94,7 @@ public struct AudioSeparator {
             let stopWatch = StopWatch().start()
             result = try separate(
                 audioURL: audioURL,
-                model: model,
+                configuration: configuration,
                 outputDirectory: workingTemporaryDirectory
             )
             logger?.info("Completed separating audio in \(stopWatch.formattedUnitsStyle())")
@@ -113,15 +130,26 @@ public struct AudioSeparator {
 
     private func separate(
         audioURL: URL,
-        model: AudioSeparator.DemucsModel,
+        configuration: AudioSeparator.DemucsConfiguration,
         outputDirectory: URL
     ) throws -> AudioSeparatorModel {
-        let arguments = [
+        var arguments = [
             "--two-stems", "vocals",
-            "--name", model.demucsName,
-            "--out", outputDirectory.path,
-            audioURL.path,
+            "--name", configuration.model.demucsName,
         ]
+        if let segment = configuration.segment {
+            arguments.append(contentsOf: ["--segment", String(segment)])
+        }
+        if let overlap = configuration.overlap {
+            arguments.append(contentsOf: ["--overlap", String(overlap)])
+        }
+        if let shifts = configuration.shifts {
+            arguments.append(contentsOf: ["--shifts", String(shifts)])
+        }
+        if let jobs = configuration.jobs {
+            arguments.append(contentsOf: ["--jobs", String(jobs)])
+        }
+        arguments.append(contentsOf: ["--out", outputDirectory.path, audioURL.path])
         if let demucsOverride {
             logger?.debug("Execute override Demucs")
             try demucsOverride(arguments)
@@ -130,7 +158,7 @@ public struct AudioSeparator {
         }
 
         let sourceStemDirectory = outputDirectory
-            .appendingPathComponent(model.demucsName, isDirectory: true)
+            .appendingPathComponent(configuration.model.demucsName, isDirectory: true)
             .appendingPathComponent(audioURL.deletingPathExtension().lastPathComponent, isDirectory: true)
         let sourceVocalsURL = sourceStemDirectory.appendingPathComponent("vocals.wav")
         let sourceMusicURL = sourceStemDirectory.appendingPathComponent("no_vocals.wav")
