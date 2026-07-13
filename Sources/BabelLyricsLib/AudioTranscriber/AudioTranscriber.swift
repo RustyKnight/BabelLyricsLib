@@ -122,6 +122,8 @@ public struct AudioTranscriber {
                 continue
             }
 
+            logger?.info("Start transcribing segment \(segment.index)")
+            
             let segmentOffsetSeconds = try seconds(from: segment.startTime)
             let stopWatch = StopWatch().start()
             let transcript = try transcribeSegment(
@@ -131,7 +133,11 @@ public struct AudioTranscriber {
             )
             
             logger?.debug("Took \(stopWatch.formattedUnitsStyle()) to transcribe segment \(segment.index)")
-            logger?.debug("Transcribe for segment \(segment.index) completed with \(transcript.segments.count) lines")
+            if transcript.segments.isEmpty {
+                logger?.warning("Transcribe for segment \(segment.index) completed with NO lines")
+            } else {
+                logger?.debug("Transcribe for segment \(segment.index) completed with \(transcript.segments.count) lines")
+            }
 
             for whisperLine in transcript.segments {
                 let whisperWords: [WhisperTranscriptWord] = whisperLine.words ?? []
@@ -181,16 +187,23 @@ public struct AudioTranscriber {
             .appendingPathComponent("segment-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: segmentOutputDirectory, withIntermediateDirectories: true)
 
-        let arguments = [
+        let effectiveTemperature = configuration.beamSize == nil ? configuration.temperature : 0.0
+        var arguments = [
             "--model", configuration.model,
             "--language", configuration.language,
-            "--temperature", String(configuration.temperature),
+            "--temperature", String(effectiveTemperature),
+            "--device", "cpu",
             "--task", "transcribe",
             "--output_format", "json",
             "--word_timestamps", "True",
-            "--output_dir", segmentOutputDirectory.path,
-            segmentURL.path,
         ]
+        if let beamSize = configuration.beamSize {
+            arguments.append(contentsOf: ["--beam_size", String(beamSize)])
+        }
+        if let threads = configuration.threads {
+            arguments.append(contentsOf: ["--threads", String(threads)])
+        }
+        arguments.append(contentsOf: ["--output_dir", segmentOutputDirectory.path, segmentURL.path])
 
         let processOutput: String
         if let whisperOverride {

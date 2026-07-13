@@ -92,7 +92,7 @@ ffmpeg -version
 - `AudioTranscriber`
   - `init(fileManager:whisperOverride:logger:)`
   - `transcribeAudio(from:audioSegmentSourceURL:temporaryDirectory:configuration:) -> AudioTranscriberModel`
-- `AudioTranscriberConfiguration`
+- `AudioTranscriberConfiguration` (`model`, `language`, `temperature`, `beamSize`, `threads`)
 - `AudioTranscriberModel`
 - `TranscribedLine` (`segmentIndex`, `startTime`, `endTime`, `text`, `words`)
 - `TranscribedWord` (`startTime`, `endTime`, `text`)
@@ -165,7 +165,7 @@ let audioSegmentSourceURL = segmentsDirectory.appendingPathComponent("source.wav
 let transcription = try transcriber.transcribeAudio(
     from: segmented,
     audioSegmentSourceURL: audioSegmentSourceURL,
-    configuration: .init(model: "large", language: "en", temperature: 0.0)
+    configuration: .init(model: "large", language: "en", beamSize: 5)
 )
 
 for line in transcription.lines {
