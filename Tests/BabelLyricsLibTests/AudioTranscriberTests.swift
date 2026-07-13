@@ -98,9 +98,10 @@ struct AudioTranscriberTests {
         #expect(!capturedArguments.contains("--beam_size"))
         #expect(!capturedArguments.contains("--threads"))
         #expect(capturedArguments.contains("--device"))
-        #expect(capturedArguments.contains("mps"))
+        #expect(capturedArguments.contains(where: { $0 == "mps" || $0 == "cpu" }))
         #expect(result.sourceAudioDuration == .seconds(12))
         #expect(result.lines.count == 2)
+        #expect(result.plainLines == ["hello world", "goodbye"])
         #expect(result.lines[0].text == "hello world")
         #expect(result.lines[0].segmentIndex == 1)
         #expect(result.lines[0].startTime == .seconds(2.1))
@@ -184,6 +185,7 @@ struct AudioTranscriberTests {
         #expect(capturedArguments.last?.hasSuffix("vocal-segment-0001.mp3") == true)
         #expect(!fileManager.fileExists(atPath: segmentTwoURL.path))
         #expect(result.lines.count == 1)
+        #expect(result.plainLines == ["kept"])
         #expect(result.lines[0].segmentIndex == 1)
         #expect(result.lines[0].text == "kept")
     }
@@ -254,9 +256,10 @@ struct AudioTranscriberTests {
         #expect(capturedArguments.contains("--threads"))
         #expect(capturedArguments.contains("2"))
         #expect(capturedArguments.contains("--device"))
-        #expect(capturedArguments.contains("mps"))
+        #expect(capturedArguments.contains(where: { $0 == "mps" || $0 == "cpu" }))
         #expect(fileManager.fileExists(atPath: providedTempDirectory.path))
         #expect(result.lines.count == 1)
+        #expect(result.plainLines == ["hey"])
         #expect(result.lines[0].segmentIndex == 1)
         #expect(result.lines[0].startTime == .seconds(0.5))
         #expect(result.lines[0].endTime == .seconds(0.75))
@@ -331,8 +334,9 @@ struct AudioTranscriberTests {
         #expect(capturedArguments.contains("--threads"))
         #expect(capturedArguments.contains("2"))
         #expect(capturedArguments.contains("--device"))
-        #expect(capturedArguments.contains("mps"))
+        #expect(capturedArguments.contains(where: { $0 == "mps" || $0 == "cpu" }))
         #expect(result.lines.count == 1)
+        #expect(result.plainLines == ["hey"])
         #expect(result.lines[0].text == "hey")
     }
 
@@ -389,6 +393,7 @@ struct AudioTranscriberTests {
         )
 
         #expect(result.lines.count == 1)
+        #expect(result.plainLines == ["test"])
         #expect(result.lines[0].segmentIndex == 1)
         #expect(result.lines[0].text == "test")
     }

@@ -93,7 +93,7 @@ ffmpeg -version
   - `init(fileManager:whisperOverride:logger:)`
   - `transcribeAudio(from:audioSegmentSourceURL:temporaryDirectory:configuration:) -> AudioTranscriberModel`
 - `AudioTranscriberConfiguration` (`model`, `language`, `temperature`, `beamSize`, `threads`)
-- `AudioTranscriberModel`
+- `AudioTranscriberModel` (`plainLines`)
 - `TranscribedLine` (`segmentIndex`, `startTime`, `endTime`, `text`, `words`)
 - `TranscribedWord` (`startTime`, `endTime`, `text`)
 - `AudioTranscriberError`

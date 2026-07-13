@@ -92,6 +92,10 @@ public struct AudioTranscriberModel: Codable, Sendable {
     public let sourceAudioDuration: Duration
     /// Transcribed lines in source-time order.
     public let lines: [TranscribedLine]
+    /// Transcribed line text in array order.
+    public var plainLines: [String] {
+        lines.map(\.text)
+    }
 
     /// Creates a transcription result.
     public init(sourceAudioDuration: Duration, lines: [TranscribedLine]) {
