@@ -65,7 +65,7 @@ public struct VideoRenderer {
             throw VideoRendererError.invalidConfiguration("framesPerSecond must be greater than zero.")
         }
 
-        let videoURL = destinationDirectory.appendingPathComponent("Lyrics.\(configuration.outputFileExtension)")
+        let videoURL = destinationDirectory.appendingPathComponent("Video-Lyrics.\(configuration.outputFileExtension)")
         if fileManager.fileExists(atPath: videoURL.path) {
             try fileManager.removeItem(at: videoURL)
         }
