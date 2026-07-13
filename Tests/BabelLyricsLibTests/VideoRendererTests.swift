@@ -13,10 +13,11 @@ struct VideoRendererTests {
         try fileManager.createDirectory(at: workspace, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: workspace) }
 
-        let transcription = TranscribeAudioResult(
+        let transcription = AudioTranscriberModel(
             sourceAudioDuration: .seconds(8),
             lines: [
                 TranscribedLine(
+                    segmentIndex: 1,
                     startTime: .seconds(1.0),
                     endTime: .seconds(3.5),
                     text: "hello world",
@@ -26,6 +27,7 @@ struct VideoRendererTests {
                     ]
                 ),
                 TranscribedLine(
+                    segmentIndex: 2,
                     startTime: .seconds(5.0),
                     endTime: .seconds(7.0),
                     text: "goodbye",
@@ -81,7 +83,7 @@ struct VideoRendererTests {
     @Test("Rejects non-positive frame rate")
     func rejectsInvalidFrameRate() throws {
         let renderer = VideoRenderer()
-        let transcription = TranscribeAudioResult(sourceAudioDuration: .seconds(1), lines: [])
+        let transcription = AudioTranscriberModel(sourceAudioDuration: .seconds(1), lines: [])
         let destinationDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VideoRendererTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: destinationDirectory) }

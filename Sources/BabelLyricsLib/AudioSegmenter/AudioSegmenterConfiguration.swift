@@ -1,7 +1,7 @@
 import Foundation
 
-/// Configuration options for ``SegmentAudio`` silence detection.
-public struct SegmentAudioConfiguration: Codable, Sendable {
+/// Configuration options for ``AudioSegmenter`` silence detection.
+public struct AudioSegmenterConfiguration: Codable, Sendable {
     /// Silence threshold in decibels.
     public let silenceThresholdDecibels: Double
     /// Minimum silence duration in seconds.

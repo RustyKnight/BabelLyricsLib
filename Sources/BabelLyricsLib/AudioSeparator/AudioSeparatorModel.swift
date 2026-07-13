@@ -1,16 +1,19 @@
-/// Demucs model options supported by ``AudioSeparator``.
-public enum AudioSeparatorModel: Sendable {
-    /// The default Demucs model.
-    case htdemucs
-    /// The MDX extra quality model.
-    case mdxExtraQ
+import Foundation
 
-    var demucsName: String {
-        switch self {
-        case .htdemucs:
-            "htdemucs"
-        case .mdxExtraQ:
-            "mdx_extra_q"
-        }
+/// The output of an audio separation operation.
+public struct AudioSeparatorModel: Sendable {
+    /// The generated vocal-only WAV file URL.
+    public let vocalsURL: URL
+    /// The generated music-only WAV file URL.
+    public let musicURL: URL
+
+    /// Creates a separation result.
+    ///
+    /// - Parameters:
+    ///   - vocalsURL: Location of the generated vocals track.
+    ///   - musicURL: Location of the generated music track.
+    public init(vocalsURL: URL, musicURL: URL) {
+        self.vocalsURL = vocalsURL
+        self.musicURL = musicURL
     }
 }

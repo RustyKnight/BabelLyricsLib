@@ -2,36 +2,35 @@ import Foundation
 import Testing
 @testable import BabelLyricsLib
 
-@Suite("Transcribe audio workflow")
-struct TranscribeAudioTests {
+@Suite("Audio transcriber workflow")
+struct AudioTranscriberTests {
     @Test("Transcribes segments, maps times to source context, and cleans auto temp directory")
     func transcribesAndMapsTimes() throws {
         let fileManager = FileManager.default
         let workspace = fileManager.temporaryDirectory
-            .appendingPathComponent("TranscribeAudioTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("AudioTranscriberTests-\(UUID().uuidString)", isDirectory: true)
         let segmentsDirectory = workspace.appendingPathComponent("segments", isDirectory: true)
         try fileManager.createDirectory(at: segmentsDirectory, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: workspace) }
 
-        let segmentOneURL = segmentsDirectory.appendingPathComponent("song-segment-0001.mp3")
-        let segmentTwoURL = segmentsDirectory.appendingPathComponent("song-segment-0002.mp3")
+        let segmentSourceURL = segmentsDirectory.appendingPathComponent("song.mp3")
+        let segmentOneURL = AudioSegment.segmentFileURL(from: segmentSourceURL, index: 1)
+        let segmentTwoURL = AudioSegment.segmentFileURL(from: segmentSourceURL, index: 2)
         try Data("one".utf8).write(to: segmentOneURL)
         try Data("two".utf8).write(to: segmentTwoURL)
 
-        let segmentResult = SegmentAudioResult(
+        let segmentResult = AudioSegmenterModel(
             sourceAudioDuration: .seconds(12),
             segments: [
                 AudioSegment(
                     index: 1,
                     startTime: "2.000",
-                    endTime: "5.000",
-                    filePath: segmentOneURL.path
+                    endTime: "5.000"
                 ),
                 AudioSegment(
                     index: 2,
                     startTime: "9.500",
-                    endTime: "12.000",
-                    filePath: segmentTwoURL.path
+                    endTime: "12.000"
                 ),
             ]
         )
@@ -39,7 +38,7 @@ struct TranscribeAudioTests {
         var capturedArguments: [String] = []
         var capturedOutputDirectory: URL?
 
-        let workflow = TranscribeAudio(whisperOverride: { arguments in
+        let workflow = AudioTranscriber(whisperOverride: { arguments in
             capturedArguments = arguments
 
             let outputIndex = arguments.firstIndex(of: "--output_dir")!
@@ -52,7 +51,7 @@ struct TranscribeAudioTests {
 
             let transcript: String
             switch inputURL.lastPathComponent {
-            case "song-segment-0001.mp3":
+            case "vocal-segment-0001.mp3":
                 transcript = """
                 {
                   "segments": [
@@ -88,7 +87,7 @@ struct TranscribeAudioTests {
             try transcript.write(to: transcriptURL, atomically: true, encoding: .utf8)
         })
 
-        let result = try workflow.transcribeAudio(from: segmentResult)
+        let result = try workflow.transcribeAudio(from: segmentResult, audioSegmentSourceURL: segmentSourceURL)
 
         #expect(capturedArguments.contains("--model"))
         #expect(capturedArguments.contains("large"))
@@ -99,6 +98,7 @@ struct TranscribeAudioTests {
         #expect(result.sourceAudioDuration == .seconds(12))
         #expect(result.lines.count == 2)
         #expect(result.lines[0].text == "hello world")
+        #expect(result.lines[0].segmentIndex == 1)
         #expect(result.lines[0].startTime == .seconds(2.1))
         #expect(result.lines[0].endTime == .seconds(3.25))
         #expect(result.lines[0].words.count == 2)
@@ -106,6 +106,7 @@ struct TranscribeAudioTests {
         #expect(result.lines[0].words[0].startTime == .seconds(2.1))
         #expect(result.lines[0].words[1].endTime == .seconds(3.25))
         #expect(result.lines[1].text == "goodbye")
+        #expect(result.lines[1].segmentIndex == 2)
         #expect(result.lines[1].startTime == .seconds(9.5))
         #expect(result.lines[1].endTime == .seconds(10.2))
 
@@ -113,7 +114,7 @@ struct TranscribeAudioTests {
         #expect(autoTempRemoved)
 
         let encoded = try JSONEncoder().encode(result)
-        let decoded = try JSONDecoder().decode(TranscribeAudioResult.self, from: encoded)
+        let decoded = try JSONDecoder().decode(AudioTranscriberModel.self, from: encoded)
         #expect(decoded.lines.count == result.lines.count)
         #expect(decoded.lines[0].words[0].text == result.lines[0].words[0].text)
     }
@@ -122,30 +123,30 @@ struct TranscribeAudioTests {
     func preservesProvidedTempDirectoryAndConfig() throws {
         let fileManager = FileManager.default
         let workspace = fileManager.temporaryDirectory
-            .appendingPathComponent("TranscribeAudioTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("AudioTranscriberTests-\(UUID().uuidString)", isDirectory: true)
         let providedTempDirectory = workspace.appendingPathComponent("whisper-temp", isDirectory: true)
         let segmentsDirectory = workspace.appendingPathComponent("segments", isDirectory: true)
         try fileManager.createDirectory(at: segmentsDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: providedTempDirectory, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: workspace) }
 
-        let segmentURL = segmentsDirectory.appendingPathComponent("line.mp3")
+        let segmentSourceURL = segmentsDirectory.appendingPathComponent("line.mp3")
+        let segmentURL = AudioSegment.segmentFileURL(from: segmentSourceURL, index: 1)
         try Data("one".utf8).write(to: segmentURL)
 
-        let segmentResult = SegmentAudioResult(
+        let segmentResult = AudioSegmenterModel(
             sourceAudioDuration: .seconds(3),
             segments: [
                 AudioSegment(
                     index: 1,
                     startTime: "0.500",
-                    endTime: "3.000",
-                    filePath: segmentURL.path
+                    endTime: "3.000"
                 ),
             ]
         )
 
         var capturedArguments: [String] = []
-        let workflow = TranscribeAudio(
+        let workflow = AudioTranscriber(
             whisperOverride: { arguments in
                 capturedArguments = arguments
                 let outputIndex = arguments.firstIndex(of: "--output_dir")!
@@ -172,8 +173,9 @@ struct TranscribeAudioTests {
 
         let result = try workflow.transcribeAudio(
             from: segmentResult,
+            audioSegmentSourceURL: segmentSourceURL,
             temporaryDirectory: providedTempDirectory,
-            configuration: TranscribeAudioConfiguration(model: "medium", language: "fr", temperature: 0.2)
+            configuration: AudioTranscriberConfiguration(model: "medium", language: "fr", temperature: 0.2)
         )
 
         #expect(capturedArguments.contains("medium"))
@@ -181,6 +183,7 @@ struct TranscribeAudioTests {
         #expect(capturedArguments.contains("0.2"))
         #expect(fileManager.fileExists(atPath: providedTempDirectory.path))
         #expect(result.lines.count == 1)
+        #expect(result.lines[0].segmentIndex == 1)
         #expect(result.lines[0].startTime == .seconds(0.5))
         #expect(result.lines[0].endTime == .seconds(0.75))
         #expect(result.lines[0].text == "hey")
@@ -190,24 +193,25 @@ struct TranscribeAudioTests {
     func usesDiscoveredJSONWhenFilenameDiffers() throws {
         let fileManager = FileManager.default
         let workspace = fileManager.temporaryDirectory
-            .appendingPathComponent("TranscribeAudioTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("AudioTranscriberTests-\(UUID().uuidString)", isDirectory: true)
         let providedTempDirectory = workspace.appendingPathComponent("whisper-temp", isDirectory: true)
         let segmentsDirectory = workspace.appendingPathComponent("segments", isDirectory: true)
         try fileManager.createDirectory(at: segmentsDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: providedTempDirectory, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: workspace) }
 
-        let segmentURL = segmentsDirectory.appendingPathComponent("line.mp3")
+        let segmentSourceURL = segmentsDirectory.appendingPathComponent("line.mp3")
+        let segmentURL = AudioSegment.segmentFileURL(from: segmentSourceURL, index: 1)
         try Data("one".utf8).write(to: segmentURL)
 
-        let segmentResult = SegmentAudioResult(
+        let segmentResult = AudioSegmenterModel(
             sourceAudioDuration: .seconds(2),
             segments: [
-                AudioSegment(index: 1, startTime: "0.000", endTime: "2.000", filePath: segmentURL.path),
+                AudioSegment(index: 1, startTime: "0.000", endTime: "2.000"),
             ]
         )
 
-        let workflow = TranscribeAudio(
+        let workflow = AudioTranscriber(
             whisperOverride: { arguments in
                 let outputIndex = arguments.firstIndex(of: "--output_dir")!
                 let outputPath = arguments[outputIndex + 1]
@@ -233,10 +237,12 @@ struct TranscribeAudioTests {
 
         let result = try workflow.transcribeAudio(
             from: segmentResult,
+            audioSegmentSourceURL: segmentSourceURL,
             temporaryDirectory: providedTempDirectory
         )
 
         #expect(result.lines.count == 1)
+        #expect(result.lines[0].segmentIndex == 1)
         #expect(result.lines[0].text == "test")
     }
 }

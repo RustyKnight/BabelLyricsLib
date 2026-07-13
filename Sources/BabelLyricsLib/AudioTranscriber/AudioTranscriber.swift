@@ -1,7 +1,7 @@
 import Foundation
 
 /// Transcribes segmented audio with Whisper and maps timings back to the source audio timeline.
-public struct TranscribeAudio {
+public struct AudioTranscriber {
     private let fileManager: FileManager
     private let whisperOverride: (([String]) throws -> Void)?
     private let logger: LogService?
@@ -26,20 +26,23 @@ public struct TranscribeAudio {
         }
     }
 
-    /// Transcribes each segment in a ``SegmentAudioResult`` and maps timings back to source audio time.
+    /// Transcribes each segment in a ``AudioSegmenterModel`` and maps timings back to source audio time.
     ///
     /// - Parameters:
     ///   - segmentAudioResult: Segments to transcribe.
+    ///   - audioSegmentSourceURL: Source URL used to generate segment file paths.
+    ///     Segment file paths are resolved via ``AudioSegment/segmentFileURL(from:index:)``.
     ///   - temporaryDirectory: Optional working directory for Whisper output.
     ///     When omitted, a temporary directory is created and removed after processing.
     ///   - configuration: Whisper configuration. Defaults to model `large`, language `en`, temperature `0.0`.
     /// - Returns: A Codable transcription result containing lines and timed words in source order.
-    /// - Throws: ``TranscribeAudioError`` or underlying filesystem/process errors.
+    /// - Throws: ``AudioTranscriberError`` or underlying filesystem/process errors.
     public func transcribeAudio(
-        from segmentAudioResult: SegmentAudioResult,
+        from segmentAudioResult: AudioSegmenterModel,
+        audioSegmentSourceURL: URL,
         temporaryDirectory: URL? = nil,
-        configuration: TranscribeAudioConfiguration = .init()
-    ) throws -> TranscribeAudioResult {
+        configuration: AudioTranscriberConfiguration = .init()
+    ) throws -> AudioTranscriberModel {
         let shouldCleanupTemporaryDirectory = temporaryDirectory == nil
         let workingTemporaryDirectory: URL
         if let temporaryDirectory {
@@ -48,17 +51,17 @@ public struct TranscribeAudio {
         } else {
             logger?.debug("Use system temporary directory for Whisper")
             workingTemporaryDirectory = fileManager.temporaryDirectory
-                .appendingPathComponent("BabelLyricsLib-TranscribeAudio-\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("BabelLyricsLib-AudioTranscriber-\(UUID().uuidString)", isDirectory: true)
         }
 
         try fileManager.createDirectory(at: workingTemporaryDirectory, withIntermediateDirectories: true)
 
         guard fileManager.fileExists(atPath: workingTemporaryDirectory.path, isDirectory: nil) else {
             logger?.error("Provided Whisper temporary directory does not exist")
-            throw TranscribeAudioError.providedTemporaryDirectoryMissing(workingTemporaryDirectory)
+            throw AudioTranscriberError.providedTemporaryDirectoryMissing(workingTemporaryDirectory)
         }
 
-        var result: TranscribeAudioResult?
+        var result: AudioTranscriberModel?
         var operationError: Error?
 
         do {
@@ -66,6 +69,7 @@ public struct TranscribeAudio {
             let stopWatch = StopWatch().start()
             result = try transcribe(
                 segmentAudioResult: segmentAudioResult,
+                audioSegmentSourceURL: audioSegmentSourceURL,
                 outputDirectory: workingTemporaryDirectory,
                 configuration: configuration
             )
@@ -82,7 +86,7 @@ public struct TranscribeAudio {
             } catch {
                 if operationError == nil {
                     logger?.error("Failed to clean up Whisper temporary directory")
-                    throw TranscribeAudioError.failedToRemoveTemporaryDirectory(
+                    throw AudioTranscriberError.failedToRemoveTemporaryDirectory(
                         workingTemporaryDirectory,
                         String(describing: error)
                     )
@@ -97,23 +101,24 @@ public struct TranscribeAudio {
         }
 
         guard let result else {
-            throw TranscribeAudioError.whisperCommandFailed("Unknown transcription failure.")
+            throw AudioTranscriberError.whisperCommandFailed("Unknown transcription failure.")
         }
         return result
     }
 
     private func transcribe(
-        segmentAudioResult: SegmentAudioResult,
+        segmentAudioResult: AudioSegmenterModel,
+        audioSegmentSourceURL: URL,
         outputDirectory: URL,
-        configuration: TranscribeAudioConfiguration
-    ) throws -> TranscribeAudioResult {
+        configuration: AudioTranscriberConfiguration
+    ) throws -> AudioTranscriberModel {
         var lines: [TranscribedLine] = []
         lines.reserveCapacity(segmentAudioResult.segments.count)
 
         for segment in segmentAudioResult.segments {
-            let segmentURL = URL(fileURLWithPath: segment.filePath)
+            let segmentURL = AudioSegment.segmentFileURL(from: audioSegmentSourceURL, index: segment.index)
             guard fileManager.fileExists(atPath: segmentURL.path) else {
-                throw TranscribeAudioError.segmentFileMissing(segmentURL)
+                throw AudioTranscriberError.segmentFileMissing(segmentURL)
             }
 
             let segmentOffsetSeconds = try seconds(from: segment.startTime)
@@ -150,6 +155,7 @@ public struct TranscribeAudio {
                 let text = whisperLine.text.isEmpty ? words.map({ $0.text }).joined(separator: " ") : whisperLine.text
                 lines.append(
                     TranscribedLine(
+                        segmentIndex: segment.index,
                         startTime: lineStart,
                         endTime: lineEnd,
                         text: text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines),
@@ -159,7 +165,7 @@ public struct TranscribeAudio {
             }
         }
 
-        return TranscribeAudioResult(
+        return AudioTranscriberModel(
             sourceAudioDuration: segmentAudioResult.sourceAudioDuration,
             lines: lines
         )
@@ -168,7 +174,7 @@ public struct TranscribeAudio {
     private func transcribeSegment(
         segmentURL: URL,
         outputDirectory: URL,
-        configuration: TranscribeAudioConfiguration
+        configuration: AudioTranscriberConfiguration
     ) throws -> WhisperTranscriptFile {
         let segmentOutputDirectory = outputDirectory
             .appendingPathComponent("segment-\(UUID().uuidString)", isDirectory: true)
@@ -214,7 +220,7 @@ public struct TranscribeAudio {
             } else {
                 logger?.error("Whisper produced no transcript file and no process output.")
             }
-            throw TranscribeAudioError.missingTranscriptOutput(expectedTranscriptURL)
+            throw AudioTranscriberError.missingTranscriptOutput(expectedTranscriptURL)
         }
 
         let data = try Data(contentsOf: transcriptURL)
@@ -260,7 +266,7 @@ public struct TranscribeAudio {
         let processOutput = String(data: outputData, encoding: .utf8) ?? ""
         logger?.debug("Whisper exited with \(process.terminationStatus)")
         guard process.terminationStatus == 0 else {
-            throw TranscribeAudioError.whisperCommandFailed(processOutput)
+            throw AudioTranscriberError.whisperCommandFailed(processOutput)
         }
         return processOutput
     }
@@ -297,14 +303,14 @@ public struct TranscribeAudio {
             return stdout
         }
 
-        throw TranscribeAudioError.whisperCommandFailed(
+        throw AudioTranscriberError.whisperCommandFailed(
             "Unable to locate whisper executable via common install paths or `which whisper`.\n\(stderr)"
         )
     }
 
     private func seconds(from time: String) throws -> Double {
         guard let seconds = Double(time) else {
-            throw TranscribeAudioError.invalidSegmentOffset(time)
+            throw AudioTranscriberError.invalidSegmentOffset(time)
         }
         return seconds
     }

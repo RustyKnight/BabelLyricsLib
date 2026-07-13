@@ -1,7 +1,7 @@
 import Foundation
 
-/// Errors thrown by ``SegmentAudio``.
-public enum SegmentAudioError: Error {
+/// Errors thrown by ``AudioSegmenter``.
+public enum AudioSegmenterError: Error {
     /// The input URL is not a file URL.
     case inputMustBeFileURL
     /// The input audio file does not exist.

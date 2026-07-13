@@ -51,7 +51,7 @@ public struct VideoRenderer {
     /// - Returns: The generated video URL.
     /// - Throws: ``VideoRendererError`` when rendering fails.
     public func renderVideo(
-        from transcription: TranscribeAudioResult,
+        from transcription: AudioTranscriberModel,
         destinationDirectory: URL,
         configuration: VideoRendererConfiguration = .init()
     ) throws -> URL {
@@ -488,7 +488,7 @@ public struct VideoRenderer {
         return output
     }
 
-    private func sourceDurationSeconds(for transcription: TranscribeAudioResult) -> Double {
+    private func sourceDurationSeconds(for transcription: AudioTranscriberModel) -> Double {
         let declaredDuration = seconds(from: transcription.sourceAudioDuration)
         let inferredDuration = transcription.lines.map { seconds(from: $0.endTime) }.max() ?? 0
         return max(declaredDuration, inferredDuration)
@@ -523,7 +523,7 @@ public struct VideoRenderer {
 }
 
 struct VideoRenderRequest {
-    let transcription: TranscribeAudioResult
+    let transcription: AudioTranscriberModel
     let displayLines: [VideoRenderLine]
     let videoURL: URL
     let width: Int

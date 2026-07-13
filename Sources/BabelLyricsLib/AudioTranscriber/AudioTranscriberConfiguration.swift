@@ -1,7 +1,7 @@
 import Foundation
 
-/// Configuration options for ``TranscribeAudio``.
-public struct TranscribeAudioConfiguration: Codable, Sendable {
+/// Configuration options for ``AudioTranscriber``.
+public struct AudioTranscriberConfiguration: Codable, Sendable {
     /// Whisper model name.
     public let model: String
     /// Whisper language code.

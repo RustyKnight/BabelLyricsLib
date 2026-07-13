@@ -33,7 +33,7 @@ public struct AudioSeparator {
     ///
     /// - Parameters:
     ///   - audioURL: Local URL to the input audio file.
-    ///   - model: Demucs model to use. Defaults to ``AudioSeparatorModel/htdemucs``.
+    ///   - model: Demucs model to use. Defaults to ``AudioSeparator/DemucsModel/htdemucs``.
     ///   - temporaryDirectory: Optional output working directory for Demucs intermediate output.
     ///     When omitted, a temporary directory is created and removed after processing.
     ///
@@ -44,9 +44,9 @@ public struct AudioSeparator {
     /// - Throws: ``AudioSeparatorError`` or filesystem/process errors.
     public func separateAudio(
         at audioURL: URL,
-        model: AudioSeparatorModel = .htdemucs,
+        model: AudioSeparator.DemucsModel = .htdemucs,
         temporaryDirectory: URL? = nil
-    ) throws -> AudioSeparatorResult {
+    ) throws -> AudioSeparatorModel {
         guard audioURL.isFileURL else {
             logger?.error("Audio source must be a file")
             throw AudioSeparatorError.inputMustBeFileURL
@@ -69,7 +69,7 @@ public struct AudioSeparator {
 
         try fileManager.createDirectory(at: workingTemporaryDirectory, withIntermediateDirectories: true)
 
-        var result: AudioSeparatorResult?
+        var result: AudioSeparatorModel?
         var operationError: Error?
 
         do {
@@ -113,9 +113,9 @@ public struct AudioSeparator {
 
     private func separate(
         audioURL: URL,
-        model: AudioSeparatorModel,
+        model: AudioSeparator.DemucsModel,
         outputDirectory: URL
-    ) throws -> AudioSeparatorResult {
+    ) throws -> AudioSeparatorModel {
         let arguments = [
             "--two-stems", "vocals",
             "--name", model.demucsName,
@@ -156,7 +156,7 @@ public struct AudioSeparator {
         try fileManager.moveItem(at: sourceVocalsURL, to: destinationVocalsURL)
         try fileManager.moveItem(at: sourceMusicURL, to: destinationMusicURL)
 
-        return AudioSeparatorResult(vocalsURL: destinationVocalsURL, musicURL: destinationMusicURL)
+        return AudioSeparatorModel(vocalsURL: destinationVocalsURL, musicURL: destinationMusicURL)
     }
 
     private func executeDemucs(arguments: [String]) throws {

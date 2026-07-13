@@ -2,13 +2,13 @@ import Foundation
 import Testing
 @testable import BabelLyricsLib
 
-@Suite("Segment audio workflow")
-struct SegmentAudioTests {
+@Suite("Audio segmenter workflow")
+struct AudioSegmenterTests {
     @Test("Segments by silence, removes existing segment files, and records metadata")
     func segmentsBySilence() throws {
         let fileManager = FileManager.default
         let workspace = fileManager.temporaryDirectory
-            .appendingPathComponent("SegmentAudioTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("AudioSegmenterTests-\(UUID().uuidString)", isDirectory: true)
         let outputDirectory = workspace.appendingPathComponent("output", isDirectory: true)
         try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: workspace) }
@@ -24,7 +24,7 @@ struct SegmentAudioTests {
         var detectionArguments: [String] = []
         var segmentOutputFiles: [String] = []
 
-        let workflow = SegmentAudio(
+        let workflow = AudioSegmenter(
             ffmpegOverride: { arguments in
                 if arguments.contains("-af") {
                     detectionArguments = arguments
@@ -62,7 +62,11 @@ struct SegmentAudioTests {
         #expect(segmentOutputFiles.count == 3)
 
         for segment in result.segments {
-            #expect(fileManager.fileExists(atPath: segment.filePath))
+            let segmentURL = AudioSegment.segmentFileURL(
+                from: outputDirectory.appendingPathComponent("source.mp3"),
+                index: segment.index
+            )
+            #expect(fileManager.fileExists(atPath: segmentURL.path))
         }
     }
 
@@ -70,7 +74,7 @@ struct SegmentAudioTests {
     func supportsConfigAndCodable() throws {
         let fileManager = FileManager.default
         let workspace = fileManager.temporaryDirectory
-            .appendingPathComponent("SegmentAudioTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("AudioSegmenterTests-\(UUID().uuidString)", isDirectory: true)
         let outputDirectory = workspace.appendingPathComponent("new-output", isDirectory: true)
         try fileManager.createDirectory(at: workspace, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: workspace) }
@@ -79,7 +83,7 @@ struct SegmentAudioTests {
         try Data("audio".utf8).write(to: audioURL)
 
         var detectionArguments: [String] = []
-        let workflow = SegmentAudio(
+        let workflow = AudioSegmenter(
             ffmpegOverride: { arguments in
                 if arguments.contains("-af") {
                     detectionArguments = arguments
@@ -94,7 +98,7 @@ struct SegmentAudioTests {
         let result = try workflow.segmentAudio(
             at: audioURL,
             outputDirectory: outputDirectory,
-            configuration: SegmentAudioConfiguration(
+            configuration: AudioSegmenterConfiguration(
                 silenceThresholdDecibels: -20,
                 minimumSilenceDurationSeconds: 0.5
             )
@@ -108,17 +112,17 @@ struct SegmentAudioTests {
         #expect(result.segments[0].endTime == "2.250")
 
         let encoded = try JSONEncoder().encode(result)
-        let decoded = try JSONDecoder().decode(SegmentAudioResult.self, from: encoded)
+        let decoded = try JSONDecoder().decode(AudioSegmenterModel.self, from: encoded)
         #expect(decoded.sourceAudioDuration == result.sourceAudioDuration)
         #expect(decoded.segments.count == result.segments.count)
-        #expect(decoded.segments[0].filePath == result.segments[0].filePath)
+        #expect(decoded.segments[0].index == result.segments[0].index)
     }
 
     @Test("Skips trailing zero-duration segments at audio end")
     func skipsTrailingZeroDurationSegment() throws {
         let fileManager = FileManager.default
         let workspace = fileManager.temporaryDirectory
-            .appendingPathComponent("SegmentAudioTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("AudioSegmenterTests-\(UUID().uuidString)", isDirectory: true)
         let outputDirectory = workspace.appendingPathComponent("output", isDirectory: true)
         try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: workspace) }
@@ -127,7 +131,7 @@ struct SegmentAudioTests {
         try Data("audio".utf8).write(to: audioURL)
 
         var segmentCommandCount = 0
-        let workflow = SegmentAudio(
+        let workflow = AudioSegmenter(
             ffmpegOverride: { arguments in
                 if arguments.contains("-af") {
                     return """
@@ -154,7 +158,7 @@ struct SegmentAudioTests {
     func skipsTinySegmentsBelowMinimumDuration() throws {
         let fileManager = FileManager.default
         let workspace = fileManager.temporaryDirectory
-            .appendingPathComponent("SegmentAudioTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("AudioSegmenterTests-\(UUID().uuidString)", isDirectory: true)
         let outputDirectory = workspace.appendingPathComponent("output", isDirectory: true)
         try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: workspace) }
@@ -163,7 +167,7 @@ struct SegmentAudioTests {
         try Data("audio".utf8).write(to: audioURL)
 
         var segmentCommandCount = 0
-        let workflow = SegmentAudio(
+        let workflow = AudioSegmenter(
             ffmpegOverride: { arguments in
                 if arguments.contains("-af") {
                     return """
@@ -184,5 +188,23 @@ struct SegmentAudioTests {
 
         #expect(result.segments.isEmpty)
         #expect(segmentCommandCount == 0)
+    }
+
+    @Test("Generates segment paths from source URL and index")
+    func generatesSegmentPaths() throws {
+        let fileManager = FileManager.default
+        let workspace = fileManager.temporaryDirectory
+            .appendingPathComponent("AudioSegmenterTests-\(UUID().uuidString)", isDirectory: true)
+        let directorySource = workspace.appendingPathComponent("segments", isDirectory: true)
+        let fileSource = workspace.appendingPathComponent("source-audio.mp3")
+        try fileManager.createDirectory(at: directorySource, withIntermediateDirectories: true)
+        try Data("audio".utf8).write(to: fileSource)
+        defer { try? fileManager.removeItem(at: workspace) }
+
+        let directoryResult = AudioSegment.segmentFileURL(from: directorySource, index: 3)
+        let fileResult = AudioSegment.segmentFileURL(from: fileSource, index: 12)
+
+        #expect(directoryResult.path == "\(directorySource.path)/vocal-segment-0003.wav")
+        #expect(fileResult.path == "\(workspace.path)/vocal-segment-0012.mp3")
     }
 }

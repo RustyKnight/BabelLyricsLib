@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Generated files are stored in the caller-provided output directory and are named
 /// `vocal-segment-<index>.<source-extension>`.
-public struct SegmentAudio {
+public struct AudioSegmenter {
     private let fileManager: FileManager
     private let ffmpegOverride: (([String]) throws -> String)?
     private let logger: LogService?
@@ -37,23 +37,23 @@ public struct SegmentAudio {
     /// - Parameters:
     ///   - audioURL: Local source audio file URL.
     ///   - outputDirectory: Required destination directory for generated segment files.
-    ///   - configuration: Silence detection configuration. Defaults to ``SegmentAudioConfiguration`` defaults.
+    ///   - configuration: Silence detection configuration. Defaults to ``AudioSegmenterConfiguration`` defaults.
     /// - Returns: A Codable model containing source duration and ordered segment metadata.
     ///   Segment times are formatted as `{seconds}.{milliseconds}`.
-    /// - Throws: ``SegmentAudioError`` or underlying filesystem/process errors.
+    /// - Throws: ``AudioSegmenterError`` or underlying filesystem/process errors.
     public func segmentAudio(
         at audioURL: URL,
         outputDirectory: URL,
-        configuration: SegmentAudioConfiguration = .init()
-    ) throws -> SegmentAudioResult {
+        configuration: AudioSegmenterConfiguration = .init()
+    ) throws -> AudioSegmenterModel {
         logger?.info("Started segmenting audio for \(audioURL.lastPathComponent)")
         guard audioURL.isFileURL else {
             logger?.error("Audio source must be a file")
-            throw SegmentAudioError.inputMustBeFileURL
+            throw AudioSegmenterError.inputMustBeFileURL
         }
         guard fileManager.fileExists(atPath: audioURL.path) else {
             logger?.error("Audio source must exist")
-            throw SegmentAudioError.inputFileMissing(audioURL)
+            throw AudioSegmenterError.inputFileMissing(audioURL)
         }
 
         logger?.debug("Create output directory")
@@ -70,6 +70,7 @@ public struct SegmentAudio {
         let segmentRanges = buildSegmentRanges(from: detectionOutput.silences, duration: detectionOutput.durationSeconds)
 
         let sourceExtension = audioURL.pathExtension.isEmpty ? "wav" : audioURL.pathExtension
+        let segmentSourceURL = outputDirectory.appendingPathComponent("source.\(sourceExtension)")
 
         var segments: [AudioSegment] = []
         segments.reserveCapacity(segmentRanges.count)
@@ -92,8 +93,7 @@ public struct SegmentAudio {
                 continue
             }
 
-            let outputFileName = "vocal-segment-\(String(format: "%04d", index)).\(sourceExtension)"
-            let outputFileURL = outputDirectory.appendingPathComponent(outputFileName)
+            let outputFileURL = AudioSegment.segmentFileURL(from: segmentSourceURL, index: index)
 
             try createSegment(
                 sourceAudioURL: audioURL,
@@ -106,14 +106,13 @@ public struct SegmentAudio {
                 AudioSegment(
                     index: index,
                     startTime: startTime,
-                    endTime: endTime,
-                    filePath: outputFileURL.path
+                    endTime: endTime
                 )
             )
         }
         logger?.debug("Took \(stopWatch.formattedUnitsStyle())")
 
-        return SegmentAudioResult(
+        return AudioSegmenterModel(
             sourceAudioDuration: .seconds(detectionOutput.durationSeconds),
             segments: segments
         )
@@ -136,7 +135,7 @@ public struct SegmentAudio {
 
     private func detectSilences(
         audioURL: URL,
-        configuration: SegmentAudioConfiguration
+        configuration: AudioSegmenterConfiguration
     ) throws -> (durationSeconds: Double, silences: [(start: Double, end: Double)]) {
         logger?.debug("Detecting silences")
         let stopWatch = StopWatch().start()
@@ -152,7 +151,7 @@ public struct SegmentAudio {
         logger?.debug("Took \(stopWatch.formattedUnitsStyle())")
 
         guard let duration = parseDuration(from: output) else {
-            throw SegmentAudioError.sourceDurationMissing
+            throw AudioSegmenterError.sourceDurationMissing
         }
         return (duration, parseSilenceRanges(from: output))
     }
@@ -287,7 +286,7 @@ public struct SegmentAudio {
         try? fileManager.removeItem(at: logFileURL)
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         guard process.terminationStatus == 0 else {
-            throw SegmentAudioError.ffmpegCommandFailed(stderr)
+            throw AudioSegmenterError.ffmpegCommandFailed(stderr)
         }
         return stderr
     }
@@ -324,7 +323,7 @@ public struct SegmentAudio {
             return stdout
         }
 
-        throw SegmentAudioError.ffmpegCommandFailed(
+        throw AudioSegmenterError.ffmpegCommandFailed(
             "Unable to locate ffmpeg executable via common install paths or `which ffmpeg`.\n\(stderr)"
         )
     }

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Output of a lyrics video render.
-public struct VideoRendererResult: Sendable {
+public struct VideoRendererModel: Sendable {
     /// Final video file URL.
     public let videoURL: URL
 
