@@ -55,6 +55,8 @@ struct AudioSeparatorTests {
         #expect(argumentValue("--jobs", in: capturedArguments) == nil)
         #expect(result.vocalsURL.lastPathComponent == "vocals.wav")
         #expect(result.musicURL.lastPathComponent == "music.wav")
+        #expect(result.vocalsURL.deletingLastPathComponent() == audioDirectory)
+        #expect(result.musicURL.deletingLastPathComponent() == audioDirectory)
         #expect(fileManager.fileExists(atPath: result.vocalsURL.path))
         #expect(fileManager.fileExists(atPath: result.musicURL.path))
 
@@ -112,6 +114,47 @@ struct AudioSeparatorTests {
         #expect(fileManager.fileExists(atPath: result.vocalsURL.path))
         #expect(fileManager.fileExists(atPath: result.musicURL.path))
         #expect(fileManager.fileExists(atPath: providedTemporaryDirectory.path))
+    }
+
+    @Test("Writes separated tracks to the provided destination directory")
+    func writesSeparatedTracksToProvidedDestinationDirectory() throws {
+        let fileManager = FileManager.default
+        let audioDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("BabelLyricsLibTests-\(UUID().uuidString)", isDirectory: true)
+        let destinationDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("BabelLyricsLibTests-Destination-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: audioDirectory, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: audioDirectory)
+            try? fileManager.removeItem(at: destinationDirectory)
+        }
+
+        let audioURL = audioDirectory.appendingPathComponent("track.mp3")
+        try Data("demo".utf8).write(to: audioURL)
+
+        let workflow = AudioSeparator(demucsOverride: { arguments in
+            let outIndex = arguments.firstIndex(of: "--out")!
+            let outPath = arguments[outIndex + 1]
+            let nameIndex = arguments.firstIndex(of: "--name")!
+            let modelName = arguments[nameIndex + 1]
+
+            let stemDirectory = URL(fileURLWithPath: outPath, isDirectory: true)
+                .appendingPathComponent(modelName, isDirectory: true)
+                .appendingPathComponent(audioURL.deletingPathExtension().lastPathComponent, isDirectory: true)
+            try fileManager.createDirectory(at: stemDirectory, withIntermediateDirectories: true)
+            try Data("vocals".utf8).write(to: stemDirectory.appendingPathComponent("vocals.wav"))
+            try Data("music".utf8).write(to: stemDirectory.appendingPathComponent("no_vocals.wav"))
+        })
+
+        let result = try workflow.separateAudio(
+            at: audioURL,
+            destinationDirectory: destinationDirectory
+        )
+
+        #expect(result.vocalsURL == destinationDirectory.appendingPathComponent("vocals.wav"))
+        #expect(result.musicURL == destinationDirectory.appendingPathComponent("music.wav"))
+        #expect(fileManager.fileExists(atPath: result.vocalsURL.path))
+        #expect(fileManager.fileExists(atPath: result.musicURL.path))
     }
 
     @Test("Rejects overlap outside 0.0 to 0.99")
@@ -192,6 +235,39 @@ struct AudioSeparatorTests {
                 break
             default:
                 Issue.record("Expected inputMustBeFileURL but got \(error)")
+            }
+        } catch {
+            Issue.record("Expected AudioSeparatorError but got \(error)")
+        }
+    }
+
+    @Test("Rejects non-file destination directory URLs")
+    func rejectsNonFileDestinationDirectoryURL() throws {
+        let fileManager = FileManager.default
+        let audioDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("BabelLyricsLibTests-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: audioDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: audioDirectory) }
+
+        let audioURL = audioDirectory.appendingPathComponent("input.wav")
+        try Data("demo".utf8).write(to: audioURL)
+
+        let workflow = AudioSeparator(demucsOverride: { _ in
+            Issue.record("Demucs should not execute when destination directory is invalid")
+        })
+
+        do {
+            _ = try workflow.separateAudio(
+                at: audioURL,
+                destinationDirectory: URL(string: "https://example.com/output")!
+            )
+            Issue.record("Expected destinationDirectoryMustBeFileURL error")
+        } catch let error as AudioSeparatorError {
+            switch error {
+            case .destinationDirectoryMustBeFileURL:
+                break
+            default:
+                Issue.record("Expected destinationDirectoryMustBeFileURL but got \(error)")
             }
         } catch {
             Issue.record("Expected AudioSeparatorError but got \(error)")

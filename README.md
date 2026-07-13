@@ -70,7 +70,7 @@ ffmpeg -version
 
 - `AudioSeparator`
   - `init(fileManager:demucsOverride:logger:)`
-  - `separateAudio(at:configuration:temporaryDirectory:) -> AudioSeparatorModel`
+  - `separateAudio(at:configuration:destinationDirectory:temporaryDirectory:) -> AudioSeparatorModel`
 - `AudioSeparator.DemucsModel` (`.htdemucs`, `.htdemucsFT`, `.htdemucs6s`, `.mdxExtra`, `.mdxExtraQ`)
 - `AudioSeparator.DemucsConfiguration` (`model`, `segment`, `overlap`, `shifts`, `jobs`)
 - `AudioSeparatorModel` (`vocalsURL`, `musicURL`)
@@ -127,6 +127,7 @@ import BabelLyricsLib
 let separator = AudioSeparator()
 let separated = try separator.separateAudio(
     at: URL(fileURLWithPath: "/path/to/song.mp3"),
+    destinationDirectory: URL(fileURLWithPath: "/path/to/output", isDirectory: true),
     configuration: .init(model: .htdemucs)
 )
 

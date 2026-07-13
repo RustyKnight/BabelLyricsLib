@@ -34,6 +34,8 @@ public struct AudioSeparator {
     /// - Parameters:
     ///   - audioURL: Local URL to the input audio file.
     ///   - configuration: Optional Demucs command configuration. Defaults to ``AudioSeparator/DemucsConfiguration``.
+    ///   - destinationDirectory: Optional directory where `vocals.wav` and `music.wav` are exported.
+    ///     When omitted, files are written beside the source audio file.
     ///   - temporaryDirectory: Optional output working directory for Demucs intermediate output.
     ///     When omitted, a temporary directory is created and removed after processing.
     ///
@@ -45,11 +47,16 @@ public struct AudioSeparator {
     public func separateAudio(
         at audioURL: URL,
         configuration: AudioSeparator.DemucsConfiguration = .init(),
+        destinationDirectory: URL? = nil,
         temporaryDirectory: URL? = nil
     ) throws -> AudioSeparatorModel {
         guard audioURL.isFileURL else {
             logger?.error("Audio source must be a file")
             throw AudioSeparatorError.inputMustBeFileURL
+        }
+        if let destinationDirectory, !destinationDirectory.isFileURL {
+            logger?.error("Audio destination directory must be a file URL")
+            throw AudioSeparatorError.destinationDirectoryMustBeFileURL
         }
         guard fileManager.fileExists(atPath: audioURL.path) else {
             logger?.error("Audio source is missing")
@@ -95,7 +102,8 @@ public struct AudioSeparator {
             result = try separate(
                 audioURL: audioURL,
                 configuration: configuration,
-                outputDirectory: workingTemporaryDirectory
+                outputDirectory: workingTemporaryDirectory,
+                destinationDirectory: destinationDirectory ?? audioURL.deletingLastPathComponent()
             )
             logger?.info("Completed separating audio in \(stopWatch.formattedUnitsStyle())")
         } catch {
@@ -131,7 +139,8 @@ public struct AudioSeparator {
     private func separate(
         audioURL: URL,
         configuration: AudioSeparator.DemucsConfiguration,
-        outputDirectory: URL
+        outputDirectory: URL,
+        destinationDirectory: URL
     ) throws -> AudioSeparatorModel {
         var arguments = [
             "--two-stems", "vocals",
@@ -170,7 +179,7 @@ public struct AudioSeparator {
             throw AudioSeparatorError.missingDemucsOutput(sourceMusicURL)
         }
 
-        let destinationDirectory = audioURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
         let destinationVocalsURL = destinationDirectory.appendingPathComponent("vocals.wav")
         let destinationMusicURL = destinationDirectory.appendingPathComponent("music.wav")
 

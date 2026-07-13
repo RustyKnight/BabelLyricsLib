@@ -67,9 +67,10 @@ public struct AudioSegmenter {
         try createMonoAudio(sourceAudioURL: audioURL, monoAudioURL: monoAudioURL)
 
         let detectionOutput = try detectSilences(audioURL: monoAudioURL, configuration: configuration)
+        let segmentCount = detectionOutput.silences.count
         
         logger?.debug("Detected duration: \(detectionOutput.durationSeconds)")
-        logger?.debug("Detected silences: \(detectionOutput.silences.count)")
+        logger?.debug("Detected silences: \(segmentCount)")
         
         logger?.debug("Build segments")
         let segmentRanges = buildSegmentRanges(from: detectionOutput.silences, duration: detectionOutput.durationSeconds)
@@ -85,6 +86,8 @@ public struct AudioSegmenter {
             let segmentDuration = range.end - range.start
             let startTime = formatTime(range.start)
             let endTime = formatTime(range.end)
+            
+            logger?.debug("Split segment: \(index) / \(segmentCount)")
 
             guard range.end > range.start, startTime != endTime else {
                 logger?.warning("Skip zero-duration segment at index \(index) (\(startTime) -> \(endTime))")

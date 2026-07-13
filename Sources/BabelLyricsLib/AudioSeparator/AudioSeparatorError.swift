@@ -4,6 +4,8 @@ import Foundation
 public enum AudioSeparatorError: Error {
     /// The input URL is not a file URL.
     case inputMustBeFileURL
+    /// The destination directory URL is not a file URL.
+    case destinationDirectoryMustBeFileURL
     /// The input audio file does not exist.
     case inputFileMissing(URL)
     /// Demucs failed to execute successfully.
