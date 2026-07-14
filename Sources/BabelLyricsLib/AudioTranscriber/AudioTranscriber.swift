@@ -112,8 +112,9 @@ public struct AudioTranscriber {
         outputDirectory: URL,
         configuration: AudioTranscriberConfiguration
     ) throws -> AudioTranscriberModel {
+        let segmentCount = segmentAudioResult.segments.count
         var lines: [TranscribedLine] = []
-        lines.reserveCapacity(segmentAudioResult.segments.count)
+        lines.reserveCapacity(segmentCount)
 
         for segment in segmentAudioResult.segments {
             let segmentURL = AudioSegment.segmentFileURL(from: audioSegmentSourceURL, index: segment.index)
@@ -122,7 +123,7 @@ public struct AudioTranscriber {
                 continue
             }
 
-            logger?.info("Start transcribing segment \(segment.index)")
+            logger?.info("Transcribing segment \(segment.index) / \(segmentCount)")
             
             let segmentOffsetSeconds = try seconds(from: segment.startTime)
             let stopWatch = StopWatch().start()
@@ -134,9 +135,9 @@ public struct AudioTranscriber {
             
             logger?.debug("Took \(stopWatch.formattedUnitsStyle()) to transcribe segment \(segment.index)")
             if transcript.segments.isEmpty {
-                logger?.warning("Transcribe for segment \(segment.index) completed with NO lines")
+                logger?.warning("Transcribing segment \(segment.index) completed with NO lines")
             } else {
-                logger?.debug("Transcribe for segment \(segment.index) completed with \(transcript.segments.count) lines")
+                logger?.debug("Transcribing segment \(segment.index) completed with \(transcript.segments.count) lines")
             }
 
             for whisperLine in transcript.segments {

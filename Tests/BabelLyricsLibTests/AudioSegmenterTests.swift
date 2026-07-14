@@ -23,11 +23,12 @@ struct AudioSegmenterTests {
 
         var detectionArguments: [String] = []
         var segmentOutputFiles: [String] = []
+        var segmentArguments: [[String]] = []
         var monoOutputPath: String?
 
         let workflow = AudioSegmenter(
             ffmpegOverride: { arguments in
-                if arguments.contains("-af") {
+                if arguments.contains(where: { $0.contains("silencedetect=") }) {
                     detectionArguments = arguments
                     return """
                     Duration: 00:00:05.000, start: 0.000000, bitrate: 192 kb/s
@@ -45,6 +46,7 @@ struct AudioSegmenterTests {
                 }
 
                 let outputPath = arguments.last!
+                segmentArguments.append(arguments)
                 segmentOutputFiles.append(outputPath)
                 try Data("segment".utf8).write(to: URL(fileURLWithPath: outputPath))
                 return ""
@@ -69,6 +71,9 @@ struct AudioSegmenterTests {
         #expect(result.segments[2].startTime == "3.400")
         #expect(result.segments[2].endTime == "5.000")
         #expect(segmentOutputFiles.count == 3)
+        #expect(segmentArguments.first?.contains("-af") == true)
+        #expect(segmentArguments.first?.contains(where: { $0.contains("adelay=500") }) == true)
+        #expect(segmentArguments.first?.contains(where: { $0.contains("apad=pad_dur=0.5") }) == true)
 
         for segment in result.segments {
             let segmentURL = AudioSegment.segmentFileURL(
@@ -94,7 +99,7 @@ struct AudioSegmenterTests {
         var detectionArguments: [String] = []
         let workflow = AudioSegmenter(
             ffmpegOverride: { arguments in
-                if arguments.contains("-af") {
+                if arguments.contains(where: { $0.contains("silencedetect=") }) {
                     detectionArguments = arguments
                     return "Duration: 00:00:02.250, start: 0.000000, bitrate: 192 kb/s"
                 }
@@ -114,7 +119,8 @@ struct AudioSegmenterTests {
             outputDirectory: outputDirectory,
             configuration: AudioSegmenterConfiguration(
                 silenceThresholdDecibels: -20,
-                minimumSilenceDurationSeconds: 0.5
+                minimumSilenceDurationSeconds: 0.5,
+                segmentPaddingSeconds: 1.0
             )
         )
 
@@ -151,7 +157,7 @@ struct AudioSegmenterTests {
         var monoCommandCount = 0
         let workflow = AudioSegmenter(
             ffmpegOverride: { arguments in
-                if arguments.contains("-af") {
+                if arguments.contains(where: { $0.contains("silencedetect=") }) {
                     return """
                     Duration: 00:05:16.9704, start: 0.000000, bitrate: 192 kb/s
                     [silencedetect @ 0x0] silence_start: 0
@@ -195,7 +201,7 @@ struct AudioSegmenterTests {
         var monoCommandCount = 0
         let workflow = AudioSegmenter(
             ffmpegOverride: { arguments in
-                if arguments.contains("-af") {
+                if arguments.contains(where: { $0.contains("silencedetect=") }) {
                     return """
                     Duration: 00:03:49.015, start: 0.000000, bitrate: 192 kb/s
                     [silencedetect @ 0x0] silence_start: 0

@@ -106,6 +106,8 @@ public struct AudioSegmenter {
                 sourceAudioURL: monoAudioURL,
                 startTime: startTime,
                 endTime: endTime,
+                segmentDuration: segmentDuration,
+                paddingSeconds: configuration.segmentPaddingSeconds,
                 outputFileURL: outputFileURL
             )
 
@@ -187,15 +189,21 @@ public struct AudioSegmenter {
         sourceAudioURL: URL,
         startTime: String,
         endTime: String,
+        segmentDuration: Double,
+        paddingSeconds: Double,
         outputFileURL: URL
     ) throws {
+        let paddingMilliseconds = Int((paddingSeconds * 1000).rounded())
+        let paddedDuration = formatTime(segmentDuration + (paddingSeconds * 2))
         _ = try runFFmpeg([
             "-hide_banner",
             "-y",
             "-i", sourceAudioURL.path,
             "-ss", startTime,
             "-to", endTime,
-            "-c", "copy",
+            "-af", "adelay=\(paddingMilliseconds):all=1,apad=pad_dur=\(paddingSeconds)",
+            "-t", paddedDuration,
+            "-c:a", "pcm_s16le",
             outputFileURL.path
         ])
     }

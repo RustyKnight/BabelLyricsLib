@@ -147,7 +147,8 @@ let segmented = try segmenter.segmentAudio(
     configuration: .init(
         silenceThresholdDecibels: -35,
         minimumSilenceDurationSeconds: 0.35,
-        minimumSegmentDurationSeconds: 0.026
+        minimumSegmentDurationSeconds: 0.026,
+        segmentPaddingSeconds: 0.5
     )
 )
 

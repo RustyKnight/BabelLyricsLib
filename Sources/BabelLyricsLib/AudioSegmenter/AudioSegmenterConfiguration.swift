@@ -8,6 +8,8 @@ public struct AudioSegmenterConfiguration: Codable, Sendable {
     public let minimumSilenceDurationSeconds: Double
     /// Minimum generated segment duration in seconds.
     public let minimumSegmentDurationSeconds: Double
+    /// Silence padding added to both start and end of each segment.
+    public let segmentPaddingSeconds: Double
 
     /// Creates a segmentation configuration.
     ///
@@ -15,13 +17,16 @@ public struct AudioSegmenterConfiguration: Codable, Sendable {
     ///   - silenceThresholdDecibels: Silence threshold in decibels. Defaults to `-35`.
     ///   - minimumSilenceDurationSeconds: Minimum silence duration in seconds. Defaults to `0.35`.
     ///   - minimumSegmentDurationSeconds: Minimum generated segment duration in seconds. Defaults to `0.026`.
+    ///   - segmentPaddingSeconds: Silence padding added to both ends of each segment. Defaults to `0.5`.
     public init(
         silenceThresholdDecibels: Double = -35,
         minimumSilenceDurationSeconds: Double = 0.35,
-        minimumSegmentDurationSeconds: Double = 0.026
+        minimumSegmentDurationSeconds: Double = 0.026,
+        segmentPaddingSeconds: Double = 0.5
     ) {
         self.silenceThresholdDecibels = silenceThresholdDecibels
         self.minimumSilenceDurationSeconds = minimumSilenceDurationSeconds
         self.minimumSegmentDurationSeconds = minimumSegmentDurationSeconds
+        self.segmentPaddingSeconds = segmentPaddingSeconds
     }
 }
