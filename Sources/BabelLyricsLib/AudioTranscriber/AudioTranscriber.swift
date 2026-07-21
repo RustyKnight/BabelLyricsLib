@@ -142,30 +142,40 @@ public struct AudioTranscriber {
 
             for whisperLine in transcript.segments {
                 let whisperWords: [WhisperTranscriptWord] = whisperLine.words ?? []
-                let words: [TranscribedWord] = whisperWords.map { word in
-                    TranscribedWord(
-                        startTime: duration(fromSeconds: segmentOffsetSeconds + word.start),
-                        endTime: duration(fromSeconds: segmentOffsetSeconds + word.end),
+                let absoluteWords: [(start: Double, end: Double, text: String)] = whisperWords.map { word in
+                    (
+                        start: segmentOffsetSeconds + word.start,
+                        end: segmentOffsetSeconds + word.end,
                         text: word.text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                     )
                 }
 
-                let lineStart: Duration
-                let lineEnd: Duration
-                if let firstWord = words.first, let lastWord = words.last {
-                    lineStart = firstWord.startTime
-                    lineEnd = lastWord.endTime
+                let lineStartSeconds: Double
+                let lineEndSeconds: Double
+                if let firstWord = absoluteWords.first, let lastWord = absoluteWords.last {
+                    lineStartSeconds = firstWord.start
+                    lineEndSeconds = lastWord.end
                 } else {
-                    lineStart = duration(fromSeconds: segmentOffsetSeconds + whisperLine.start)
-                    lineEnd = duration(fromSeconds: segmentOffsetSeconds + whisperLine.end)
+                    lineStartSeconds = segmentOffsetSeconds + whisperLine.start
+                    lineEndSeconds = segmentOffsetSeconds + whisperLine.end
+                }
+
+                let words: [TranscribedWord] = absoluteWords.map { word in
+                    let relativeStart = max(0, word.start - lineStartSeconds)
+                    let relativeEnd = max(relativeStart, word.end - lineStartSeconds)
+                    return TranscribedWord(
+                        startTime: duration(fromSeconds: relativeStart),
+                        endTime: duration(fromSeconds: relativeEnd),
+                        text: word.text
+                    )
                 }
 
                 let text = whisperLine.text.isEmpty ? words.map({ $0.text }).joined(separator: " ") : whisperLine.text
                 lines.append(
                     TranscribedLine(
                         segmentIndex: segment.index,
-                        startTime: lineStart,
-                        endTime: lineEnd,
+                        startTime: duration(fromSeconds: lineStartSeconds),
+                        endTime: duration(fromSeconds: lineEndSeconds),
                         text: text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines),
                         words: words
                     )

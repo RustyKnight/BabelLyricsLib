@@ -22,8 +22,8 @@ struct VideoRendererTests {
                     endTime: .seconds(3.5),
                     text: "hello world",
                     words: [
-                        TranscribedWord(startTime: .seconds(1.0), endTime: .seconds(1.8), text: "hello"),
-                        TranscribedWord(startTime: .seconds(1.8), endTime: .seconds(3.5), text: "world"),
+                        TranscribedWord(startTime: .seconds(0.0), endTime: .seconds(0.8), text: "hello"),
+                        TranscribedWord(startTime: .seconds(0.8), endTime: .seconds(2.5), text: "world"),
                     ]
                 ),
                 TranscribedLine(
@@ -32,7 +32,7 @@ struct VideoRendererTests {
                     endTime: .seconds(7.0),
                     text: "goodbye",
                     words: [
-                        TranscribedWord(startTime: .seconds(5.0), endTime: .seconds(7.0), text: "goodbye"),
+                        TranscribedWord(startTime: .seconds(0.0), endTime: .seconds(2.0), text: "goodbye"),
                     ]
                 ),
             ]
@@ -62,6 +62,10 @@ struct VideoRendererTests {
         #expect(firstLine.activeEndSeconds == 3.5)
         #expect(firstLine.displayEndSeconds == 4.5)
         #expect(firstLine.words.count == 2)
+        #expect(firstLine.words[0].startSeconds == 1.0)
+        #expect(firstLine.words[0].endSeconds == 1.8)
+        #expect(firstLine.words[1].startSeconds == 1.8)
+        #expect(firstLine.words[1].endSeconds == 3.5)
 
         let secondLine = try #require(request.displayLines.last)
         #expect(secondLine.displayStartSeconds == 4)

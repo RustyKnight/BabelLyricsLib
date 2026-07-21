@@ -467,10 +467,14 @@ public struct VideoRenderer {
             let words = line.words
                 .sorted { $0.startTime < $1.startTime }
                 .map { word in
-                    VideoRenderWord(
+                    let relativeWordStart = max(0, seconds(from: word.startTime))
+                    let relativeWordEnd = max(relativeWordStart, seconds(from: word.endTime))
+                    let absoluteWordStart = lineStart + relativeWordStart
+                    let absoluteWordEnd = max(absoluteWordStart, lineStart + relativeWordEnd)
+                    return VideoRenderWord(
                         text: word.text,
-                        startSeconds: seconds(from: word.startTime),
-                        endSeconds: max(seconds(from: word.startTime), seconds(from: word.endTime))
+                        startSeconds: absoluteWordStart,
+                        endSeconds: absoluteWordEnd
                     )
                 }
 

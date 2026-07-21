@@ -108,12 +108,14 @@ struct AudioTranscriberTests {
         #expect(result.lines[0].endTime == .seconds(3.25))
         #expect(result.lines[0].words.count == 2)
         #expect(result.lines[0].words[0].text == "hello")
-        #expect(result.lines[0].words[0].startTime == .seconds(2.1))
-        #expect(result.lines[0].words[1].endTime == .seconds(3.25))
+        #expect(result.lines[0].words[0].startTime == .seconds(0))
+        #expect(result.lines[0].words[1].endTime == .seconds(1.15))
         #expect(result.lines[1].text == "goodbye")
         #expect(result.lines[1].segmentIndex == 2)
         #expect(result.lines[1].startTime == .seconds(9.5))
         #expect(result.lines[1].endTime == .seconds(10.2))
+        #expect(result.lines[1].words[0].startTime == .seconds(0))
+        #expect(result.lines[1].words[0].endTime == .seconds(0.7))
 
         let autoTempRemoved = capturedOutputDirectory.map { !fileManager.fileExists(atPath: $0.path) } ?? false
         #expect(autoTempRemoved)

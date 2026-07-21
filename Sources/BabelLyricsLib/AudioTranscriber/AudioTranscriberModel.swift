@@ -1,10 +1,10 @@
 import Foundation
 
-/// A transcribed word aligned to the original source audio timeline.
+/// A transcribed word aligned to its containing line timeline.
 public struct TranscribedWord: Codable, Sendable {
-    /// Word start time in the original audio context.
+    /// Word start time relative to the containing line's `startTime`.
     public let startTime: Duration
-    /// Word end time in the original audio context.
+    /// Word end time relative to the containing line's `startTime`.
     public let endTime: Duration
     /// Word text.
     public let text: String
@@ -47,7 +47,7 @@ public struct TranscribedLine: Codable, Sendable {
     public let endTime: Duration
     /// Line text.
     public let text: String
-    /// Ordered words belonging to the line.
+    /// Ordered words belonging to the line, with timings relative to this line's `startTime`.
     public let words: [TranscribedWord]
 
     /// Creates a transcribed line.
