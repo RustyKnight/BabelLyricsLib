@@ -98,6 +98,9 @@ ffmpeg -version
 - `TranscribedWord` (`startTime`, `endTime`, `text`)
 - `AudioTranscriberError`
 
+`TranscribedLine.startTime` and `TranscribedLine.endTime` are source-audio absolute times.
+`TranscribedWord.startTime` and `TranscribedWord.endTime` are relative to the containing line's `startTime`.
+
 ### Video rendering
 
 - `VideoRenderer`
@@ -107,6 +110,8 @@ ffmpeg -version
 - `VideoRendererResolution`
 - `VideoRendererError`
 - `VideoRendererModel`
+
+`VideoRenderer` supports overlapping lyric lines. Newer overlapping lines are rendered above existing visible lines, each line keeps its assigned vertical position until it leaves the screen, and newly arriving lines reuse the lowest available empty slot.
 
 ### Logging
 
@@ -194,7 +199,7 @@ let videoURL = try renderer.renderVideo(
     )
 )
 
-print(videoURL.path) // .../Lyrics.mov
+print(videoURL.path) // .../Video-Lyrics.mov
 ```
 
 ## End-to-end flow
