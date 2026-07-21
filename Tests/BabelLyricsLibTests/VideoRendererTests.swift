@@ -48,7 +48,7 @@ struct VideoRendererTests {
         let videoURL = try renderer.renderVideo(from: transcription, destinationDirectory: destinationDirectory)
         let request = try #require(capturedRequest)
 
-        #expect(videoURL.lastPathComponent == "Lyrics.mov")
+        #expect(videoURL.lastPathComponent == "Video-Lyrics.mov")
         #expect(fileManager.fileExists(atPath: videoURL.path))
         #expect(request.width == 1920)
         #expect(request.height == 1080)
@@ -61,6 +61,7 @@ struct VideoRendererTests {
         #expect(firstLine.activeStartSeconds == 1)
         #expect(firstLine.activeEndSeconds == 3.5)
         #expect(firstLine.displayEndSeconds == 4.5)
+        #expect(firstLine.stackLevel == 0)
         #expect(firstLine.words.count == 2)
         #expect(firstLine.words[0].startSeconds == 1.0)
         #expect(firstLine.words[0].endSeconds == 1.8)
@@ -70,6 +71,119 @@ struct VideoRendererTests {
         let secondLine = try #require(request.displayLines.last)
         #expect(secondLine.displayStartSeconds == 4)
         #expect(secondLine.displayEndSeconds == 8)
+        #expect(secondLine.stackLevel == 1)
+    }
+
+    @Test("Overlapping lines are stacked above existing lines")
+    func stacksOverlappingLines() throws {
+        let fileManager = FileManager.default
+        let workspace = fileManager.temporaryDirectory
+            .appendingPathComponent("VideoRendererTests-\(UUID().uuidString)", isDirectory: true)
+        let destinationDirectory = workspace.appendingPathComponent("output", isDirectory: true)
+        try fileManager.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: workspace) }
+
+        let transcription = AudioTranscriberModel(
+            sourceAudioDuration: .seconds(10),
+            lines: [
+                TranscribedLine(
+                    segmentIndex: 1,
+                    startTime: .seconds(1),
+                    endTime: .seconds(5),
+                    text: "line one",
+                    words: [TranscribedWord(startTime: .seconds(0), endTime: .seconds(4), text: "line")]
+                ),
+                TranscribedLine(
+                    segmentIndex: 2,
+                    startTime: .seconds(3),
+                    endTime: .seconds(6),
+                    text: "line two",
+                    words: [TranscribedWord(startTime: .seconds(0), endTime: .seconds(3), text: "line")]
+                ),
+                TranscribedLine(
+                    segmentIndex: 3,
+                    startTime: .seconds(6),
+                    endTime: .seconds(8),
+                    text: "line three",
+                    words: [TranscribedWord(startTime: .seconds(0), endTime: .seconds(2), text: "line")]
+                ),
+            ]
+        )
+
+        var capturedRequest: VideoRenderRequest?
+        let renderer = VideoRenderer(renderOverride: { request in
+            capturedRequest = request
+            try Data("video".utf8).write(to: request.videoURL)
+        })
+
+        _ = try renderer.renderVideo(from: transcription, destinationDirectory: destinationDirectory)
+        let request = try #require(capturedRequest)
+        #expect(request.displayLines.count == 3)
+
+        let firstLine = request.displayLines[0]
+        let secondLine = request.displayLines[1]
+        let thirdLine = request.displayLines[2]
+
+        #expect(firstLine.stackLevel == 0)
+        #expect(secondLine.stackLevel == 1)
+        #expect(thirdLine.stackLevel == 2)
+    }
+
+    @Test("Reuses empty stack slot while higher line remains visible")
+    func reusesFreedStackSlots() throws {
+        let fileManager = FileManager.default
+        let workspace = fileManager.temporaryDirectory
+            .appendingPathComponent("VideoRendererTests-\(UUID().uuidString)", isDirectory: true)
+        let destinationDirectory = workspace.appendingPathComponent("output", isDirectory: true)
+        try fileManager.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: workspace) }
+
+        let transcription = AudioTranscriberModel(
+            sourceAudioDuration: .seconds(14),
+            lines: [
+                TranscribedLine(
+                    segmentIndex: 1,
+                    startTime: .seconds(1),
+                    endTime: .seconds(3),
+                    text: "line one",
+                    words: [TranscribedWord(startTime: .seconds(0), endTime: .seconds(2), text: "line")]
+                ),
+                TranscribedLine(
+                    segmentIndex: 2,
+                    startTime: .seconds(2),
+                    endTime: .seconds(10),
+                    text: "line two",
+                    words: [TranscribedWord(startTime: .seconds(0), endTime: .seconds(8), text: "line")]
+                ),
+                TranscribedLine(
+                    segmentIndex: 3,
+                    startTime: .seconds(6.2),
+                    endTime: .seconds(8),
+                    text: "line three",
+                    words: [TranscribedWord(startTime: .seconds(0), endTime: .seconds(1.8), text: "line")]
+                ),
+            ]
+        )
+
+        var capturedRequest: VideoRenderRequest?
+        let renderer = VideoRenderer(renderOverride: { request in
+            capturedRequest = request
+            try Data("video".utf8).write(to: request.videoURL)
+        })
+
+        _ = try renderer.renderVideo(from: transcription, destinationDirectory: destinationDirectory)
+        let request = try #require(capturedRequest)
+        #expect(request.displayLines.count == 3)
+
+        let firstLine = request.displayLines[0]
+        let secondLine = request.displayLines[1]
+        let thirdLine = request.displayLines[2]
+
+        #expect(firstLine.stackLevel == 0)
+        #expect(secondLine.stackLevel == 1)
+        #expect(thirdLine.stackLevel == 0)
+        #expect(firstLine.displayEndSeconds < thirdLine.displayStartSeconds)
+        #expect(secondLine.displayEndSeconds > thirdLine.displayStartSeconds)
     }
 
     @Test("Supports custom resolution based on height and ratio")

@@ -71,7 +71,16 @@ public struct VideoRenderer {
         }
 
         let duration = max(sourceDurationSeconds(for: transcription), 1.0 / configuration.framesPerSecond)
-        let sortedLines = transcription.lines.sorted { $0.startTime < $1.startTime }
+        let sortedLines = transcription.lines.enumerated()
+            .sorted { lhs, rhs in
+                let lhsStart = seconds(from: lhs.element.startTime)
+                let rhsStart = seconds(from: rhs.element.startTime)
+                if lhsStart != rhsStart {
+                    return lhsStart < rhsStart
+                }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
         let displayLines = buildDisplayLines(
             from: sortedLines,
             sourceDurationSeconds: duration,
@@ -223,20 +232,58 @@ public struct VideoRenderer {
         request: VideoRenderRequest,
         configuration: VideoRendererConfiguration
     ) {
-        guard let activeLine = request.displayLines.last(where: {
-            timestampSeconds >= $0.displayStartSeconds && timestampSeconds <= $0.displayEndSeconds
-        }) else {
+        let visibleLines = request.displayLines
+            .filter { timestampSeconds >= $0.displayStartSeconds && timestampSeconds <= $0.displayEndSeconds }
+            .sorted { lhs, rhs in
+                if lhs.stackLevel != rhs.stackLevel {
+                    return lhs.stackLevel < rhs.stackLevel
+                }
+                return lhs.activeStartSeconds < rhs.activeStartSeconds
+            }
+
+        guard !visibleLines.isEmpty else {
             return
         }
-
-        let text = activeLine.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
 
         let font = CTFontCreateWithName("Arial Rounded MT Bold" as CFString, 48, nil)
         let availableWidth = max(1, CGFloat(request.width - (configuration.horizontalPadding * 2)))
         let maximumTextHeight = max(1, CGFloat(request.height) * 0.35)
         let paragraphStyle = makeParagraphStyle()
         let strokeWidth: CGFloat = 6.0
+        let stackStride = lyricStackStride(font: font, strokeWidth: strokeWidth)
+
+        for line in visibleLines {
+            drawLine(
+                line,
+                in: context,
+                at: timestampSeconds,
+                availableWidth: availableWidth,
+                maximumTextHeight: maximumTextHeight,
+                horizontalPadding: configuration.horizontalPadding,
+                bottomPadding: configuration.bottomPadding,
+                stackStride: stackStride,
+                font: font,
+                paragraphStyle: paragraphStyle,
+                strokeWidth: strokeWidth
+            )
+        }
+    }
+
+    private func drawLine(
+        _ line: VideoRenderLine,
+        in context: CGContext,
+        at timestampSeconds: Double,
+        availableWidth: CGFloat,
+        maximumTextHeight: CGFloat,
+        horizontalPadding: Int,
+        bottomPadding: Int,
+        stackStride: CGFloat,
+        font: CTFont,
+        paragraphStyle: CTParagraphStyle,
+        strokeWidth: CGFloat
+    ) {
+        let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
 
         let baseStrokeAttributes = makeStrokeAttributes(
             font: font,
@@ -259,9 +306,9 @@ public struct VideoRenderer {
             nil
         )
         let textHeight = max(ceil(suggestedSize.height), 56)
-        let originY = CGFloat(configuration.bottomPadding)
+        let originY = CGFloat(bottomPadding) + (CGFloat(line.stackLevel) * stackStride)
         let textRect = CGRect(
-            x: CGFloat(configuration.horizontalPadding),
+            x: CGFloat(horizontalPadding),
             y: originY,
             width: availableWidth,
             height: min(maximumTextHeight, textHeight)
@@ -284,7 +331,7 @@ public struct VideoRenderer {
         CTFrameDraw(baseStrokeFrame, context)
         CTFrameDraw(baseFillFrame, context)
 
-        let highlightedLength = highlightedUTF16Length(for: activeLine, at: timestampSeconds)
+        let highlightedLength = highlightedUTF16Length(for: line, at: timestampSeconds)
         if highlightedLength > 0 {
             let highlightStrokeAttributes = makeStrokeAttributes(
                 font: font,
@@ -312,6 +359,13 @@ public struct VideoRenderer {
                 fillAttributes: highlightFillAttributes
             )
         }
+    }
+
+    private func lyricStackStride(font: CTFont, strokeWidth: CGFloat) -> CGFloat {
+        let fontHeight = ceil(CTFontGetAscent(font) + CTFontGetDescent(font) + CTFontGetLeading(font))
+        let minimumLineHeight: CGFloat = 56
+        let lineSpacing: CGFloat = 8
+        return max(minimumLineHeight, fontHeight + strokeWidth) + lineSpacing
     }
 
     private func drawHighlightedPortion(
@@ -453,16 +507,29 @@ public struct VideoRenderer {
         sourceDurationSeconds: Double,
         configuration: VideoRendererConfiguration
     ) -> [VideoRenderLine] {
+        struct ActiveDisplayLine {
+            let displayEnd: Double
+            let stackLevel: Int
+        }
+
         var output: [VideoRenderLine] = []
-        for (index, line) in lines.enumerated() {
+        var activeDisplayLines: [ActiveDisplayLine] = []
+
+        for line in lines {
             let lineStart = seconds(from: line.startTime)
             let lineEnd = max(lineStart, seconds(from: line.endTime))
-            let previousEnd = index > 0 ? seconds(from: lines[index - 1].endTime) : 0
-            let nextStart = index + 1 < lines.count ? seconds(from: lines[index + 1].startTime) : sourceDurationSeconds
 
-            let displayStart = max(previousEnd, max(0, lineStart - configuration.preRollPaddingSeconds))
-            let displayEnd = min(nextStart, min(sourceDurationSeconds, lineEnd + configuration.postRollPaddingSeconds))
+            let displayStart = max(0, lineStart - configuration.preRollPaddingSeconds)
+            let displayEnd = min(sourceDurationSeconds, lineEnd + configuration.postRollPaddingSeconds)
             guard displayEnd > displayStart else { continue }
+
+            activeDisplayLines = activeDisplayLines.filter { $0.displayEnd > displayStart }
+            let usedLevels = Set(activeDisplayLines.map(\.stackLevel))
+            var stackLevel = 0
+            while usedLevels.contains(stackLevel) {
+                stackLevel += 1
+            }
+            activeDisplayLines.append(.init(displayEnd: displayEnd, stackLevel: stackLevel))
 
             let words = line.words
                 .sorted { $0.startTime < $1.startTime }
@@ -485,6 +552,7 @@ public struct VideoRenderer {
                     activeEndSeconds: lineEnd,
                     displayStartSeconds: displayStart,
                     displayEndSeconds: displayEnd,
+                    stackLevel: stackLevel,
                     words: words
                 )
             )
@@ -542,6 +610,7 @@ struct VideoRenderLine {
     let activeEndSeconds: Double
     let displayStartSeconds: Double
     let displayEndSeconds: Double
+    let stackLevel: Int
     let words: [VideoRenderWord]
 }
 
