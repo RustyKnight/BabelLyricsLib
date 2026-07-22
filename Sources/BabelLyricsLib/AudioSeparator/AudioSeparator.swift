@@ -4,6 +4,7 @@ import Foundation
 public struct AudioSeparator {
     private let fileManager: FileManager
     private let demucsOverride: (([String]) throws -> Void)?
+    private let ffmpegOverride: (([String]) throws -> String)?
     
     private let logger: LogService?
 
@@ -12,14 +13,17 @@ public struct AudioSeparator {
     /// - Parameters:
     ///   - fileManager: File manager used for filesystem operations.
     ///   - demucsOverride: Optional command override for Demucs execution. If omitted, uses `python3 -m demucs.separate`.
+    ///   - ffmpegOverride: Optional command override used for FFmpeg calls.
     ///   - logger: Optional log delegate that receives lifecycle, command, and error messages.
     public init(
         fileManager: FileManager = .default,
         demucsOverride: (([String]) throws -> Void)? = nil,
+        ffmpegOverride: (([String]) throws -> String)? = nil,
         logger: (any LogDelegate)? = nil
     ) {
         self.fileManager = fileManager
         self.demucsOverride = demucsOverride
+        self.ffmpegOverride = ffmpegOverride
         if let logger {
             self.logger = .init(delegate: logger)
         } else {
@@ -29,12 +33,12 @@ public struct AudioSeparator {
 
     /// Splits an audio file into vocal-only and music-only WAV tracks.
     ///
-    /// Output files are written alongside the input file as `vocals.wav` and `music.wav`.
+    /// Output files are written alongside the input file as `vocals.wav`, `music.wav`, and `vocal-mono.wav`.
     ///
     /// - Parameters:
     ///   - audioURL: Local URL to the input audio file.
     ///   - configuration: Optional Demucs command configuration. Defaults to ``AudioSeparator/DemucsConfiguration``.
-    ///   - destinationDirectory: Optional directory where `vocals.wav` and `music.wav` are exported.
+    ///   - destinationDirectory: Optional directory where `vocals.wav`, `music.wav`, and `vocal-mono.wav` are exported.
     ///     When omitted, files are written beside the source audio file.
     ///   - temporaryDirectory: Optional output working directory for Demucs intermediate output.
     ///     When omitted, a temporary directory is created and removed after processing.
@@ -144,7 +148,9 @@ public struct AudioSeparator {
     ) throws -> AudioSeparatorModel {
         var arguments = [
             "--two-stems", "vocals",
+            "--float32",
             "--name", configuration.model.demucsName,
+            "--device", configuration.device.demucsName,
         ]
         if let segment = configuration.segment {
             arguments.append(contentsOf: ["--segment", String(segment)])
@@ -182,6 +188,7 @@ public struct AudioSeparator {
         try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
         let destinationVocalsURL = destinationDirectory.appendingPathComponent("vocals.wav")
         let destinationMusicURL = destinationDirectory.appendingPathComponent("music.wav")
+        let destinationMonoVocalsURL = destinationDirectory.appendingPathComponent("vocal-mono.wav")
 
         if fileManager.fileExists(atPath: destinationVocalsURL.path) {
             try fileManager.removeItem(at: destinationVocalsURL)
@@ -192,8 +199,26 @@ public struct AudioSeparator {
 
         try fileManager.moveItem(at: sourceVocalsURL, to: destinationVocalsURL)
         try fileManager.moveItem(at: sourceMusicURL, to: destinationMusicURL)
+        try createMonoAudio(sourceAudioURL: destinationVocalsURL, monoAudioURL: destinationMonoVocalsURL)
 
         return AudioSeparatorModel(vocalsURL: destinationVocalsURL, musicURL: destinationMusicURL)
+    }
+
+    private func createMonoAudio(
+        sourceAudioURL: URL,
+        monoAudioURL: URL
+    ) throws {
+        logger?.debug("Create mono vocal file at \(monoAudioURL.lastPathComponent)")
+        _ = try runFFmpeg([
+            "-hide_banner",
+            "-y",
+            "-i", sourceAudioURL.path,
+            "-vn",
+            "-af", "pan=mono|c0=0.5*c0+0.5*c1",
+            "-ac", "1",
+            "-c:a", "pcm_s16le",
+            monoAudioURL.path,
+        ])
     }
 
     private func executeDemucs(arguments: [String]) throws {
@@ -225,5 +250,77 @@ public struct AudioSeparator {
         guard process.terminationStatus == 0 else {
             throw AudioSeparatorError.demucsCommandFailed(output)
         }
+    }
+
+    private func runFFmpeg(_ arguments: [String]) throws -> String {
+        if let ffmpegOverride {
+            logger?.debug("Execute override ffmpeg")
+            return try ffmpegOverride(arguments)
+        }
+
+        let ffmpegExecutable = try resolveFFmpegExecutable()
+
+        logger?.debug("\(ffmpegExecutable) \(arguments.joined(separator: " "))")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ffmpegExecutable)
+        process.arguments = ["-nostdin"] + arguments
+
+        let logFileURL = fileManager.temporaryDirectory
+            .appendingPathComponent("BabelLyricsLib-ffmpeg-\(UUID().uuidString).log")
+        fileManager.createFile(atPath: logFileURL.path, contents: nil)
+        let logHandle = try FileHandle(forWritingTo: logFileURL)
+        process.standardInput = FileHandle.nullDevice
+        process.standardError = logHandle
+        process.standardOutput = logHandle
+
+        try process.run()
+        process.waitUntilExit()
+        try logHandle.close()
+
+        let stderrData = try Data(contentsOf: logFileURL)
+        try? fileManager.removeItem(at: logFileURL)
+        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        guard process.terminationStatus == 0 else {
+            throw AudioSeparatorError.ffmpegCommandFailed(stderr)
+        }
+        return stderr
+    }
+
+    private func resolveFFmpegExecutable() throws -> String {
+        let commonPaths = [
+            "/opt/homebrew/bin/ffmpeg",
+            "/usr/local/bin/ffmpeg",
+            "/usr/bin/ffmpeg",
+        ]
+        if let resolved = commonPaths.first(where: { fileManager.isExecutableFile(atPath: $0) }) {
+            return resolved
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        process.arguments = ["ffmpeg"]
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stdout = String(data: stdoutData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+
+        if process.terminationStatus == 0, !stdout.isEmpty {
+            return stdout
+        }
+
+        throw AudioSeparatorError.ffmpegCommandFailed(
+            "Unable to locate ffmpeg executable via common install paths or `which ffmpeg`.\n\(stderr)"
+        )
     }
 }

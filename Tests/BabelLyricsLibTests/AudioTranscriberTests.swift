@@ -95,10 +95,17 @@ struct AudioTranscriberTests {
         #expect(capturedArguments.contains("en"))
         #expect(capturedArguments.contains("--temperature"))
         #expect(capturedArguments.contains("0.0"))
-        #expect(!capturedArguments.contains("--beam_size"))
+        #expect(capturedArguments.contains("--beam_size"))
+        #expect(capturedArguments.contains("5"))
+        #expect(capturedArguments.contains("--task"))
+        #expect(capturedArguments.contains("transcribe"))
+        #expect(capturedArguments.contains("--condition_on_previous_text"))
+        #expect(capturedArguments.contains("True"))
         #expect(!capturedArguments.contains("--threads"))
         #expect(capturedArguments.contains("--device"))
         #expect(capturedArguments.contains(where: { $0 == "mps" || $0 == "cpu" }))
+        #expect(capturedArguments.contains("--fp16"))
+        #expect(capturedArguments.contains(where: { $0 == "True" || $0 == "False" }))
         #expect(result.sourceAudioDuration == .seconds(12))
         #expect(result.lines.count == 2)
         #expect(result.plainLines == ["hello world", "goodbye"])
@@ -248,17 +255,36 @@ struct AudioTranscriberTests {
             from: segmentResult,
             audioSegmentSourceURL: segmentSourceURL,
             temporaryDirectory: providedTempDirectory,
-            configuration: AudioTranscriberConfiguration(model: "medium", language: "fr", temperature: 0.2, threads: 2)
+            configuration: AudioTranscriberConfiguration(
+                model: .medium,
+                language: .fr,
+                task: .translate,
+                temperature: 0.2,
+                bestOf: 8,
+                conditionOnPreviousText: false,
+                initialPrompt: "artist and song names",
+                threads: 2
+            )
         )
 
         #expect(capturedArguments.contains("medium"))
         #expect(capturedArguments.contains("fr"))
+        #expect(capturedArguments.contains("translate"))
         #expect(capturedArguments.contains("0.2"))
-        #expect(!capturedArguments.contains("--beam_size"))
+        #expect(capturedArguments.contains("--beam_size"))
+        #expect(capturedArguments.contains("5"))
+        #expect(capturedArguments.contains("--best_of"))
+        #expect(capturedArguments.contains("8"))
+        #expect(capturedArguments.contains("--condition_on_previous_text"))
+        #expect(capturedArguments.contains("False"))
+        #expect(capturedArguments.contains("--initial_prompt"))
+        #expect(capturedArguments.contains("artist and song names"))
         #expect(capturedArguments.contains("--threads"))
         #expect(capturedArguments.contains("2"))
         #expect(capturedArguments.contains("--device"))
         #expect(capturedArguments.contains(where: { $0 == "mps" || $0 == "cpu" }))
+        #expect(capturedArguments.contains("--fp16"))
+        #expect(capturedArguments.contains(where: { $0 == "True" || $0 == "False" }))
         #expect(fileManager.fileExists(atPath: providedTempDirectory.path))
         #expect(result.lines.count == 1)
         #expect(result.plainLines == ["hey"])
@@ -321,8 +347,8 @@ struct AudioTranscriberTests {
             audioSegmentSourceURL: segmentSourceURL,
             temporaryDirectory: providedTempDirectory,
             configuration: AudioTranscriberConfiguration(
-                model: "medium",
-                language: "fr",
+                model: .medium,
+                language: .fr,
                 beamSize: 7,
                 threads: 2
             )
@@ -398,5 +424,64 @@ struct AudioTranscriberTests {
         #expect(result.plainLines == ["test"])
         #expect(result.lines[0].segmentIndex == 1)
         #expect(result.lines[0].text == "test")
+    }
+
+    @Test("Supports custom language values")
+    func supportsCustomLanguageValue() throws {
+        let fileManager = FileManager.default
+        let workspace = fileManager.temporaryDirectory
+            .appendingPathComponent("AudioTranscriberTests-\(UUID().uuidString)", isDirectory: true)
+        let providedTempDirectory = workspace.appendingPathComponent("whisper-temp", isDirectory: true)
+        let segmentsDirectory = workspace.appendingPathComponent("segments", isDirectory: true)
+        try fileManager.createDirectory(at: segmentsDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: providedTempDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: workspace) }
+
+        let segmentSourceURL = segmentsDirectory.appendingPathComponent("line.mp3")
+        let segmentURL = AudioSegment.segmentFileURL(from: segmentSourceURL, index: 1)
+        try Data("one".utf8).write(to: segmentURL)
+
+        let segmentResult = AudioSegmenterModel(
+            sourceAudioDuration: .seconds(2),
+            segments: [
+                AudioSegment(index: 1, startTime: "0.000", endTime: "2.000"),
+            ]
+        )
+
+        var capturedArguments: [String] = []
+        let workflow = AudioTranscriber(
+            whisperOverride: { arguments in
+                capturedArguments = arguments
+                let outputIndex = arguments.firstIndex(of: "--output_dir")!
+                let outputPath = arguments[outputIndex + 1]
+                let transcriptURL = URL(fileURLWithPath: outputPath)
+                    .appendingPathComponent("line.json")
+                let transcript = """
+                {
+                  "segments": [
+                    {
+                      "start": 0.000,
+                      "end": 0.500,
+                      "text": " test",
+                      "words": [
+                        { "start": 0.000, "end": 0.500, "word": " test" }
+                      ]
+                    }
+                  ]
+                }
+                """
+                try transcript.write(to: transcriptURL, atomically: true, encoding: .utf8)
+            }
+        )
+
+        _ = try workflow.transcribeAudio(
+            from: segmentResult,
+            audioSegmentSourceURL: segmentSourceURL,
+            temporaryDirectory: providedTempDirectory,
+            configuration: .init(language: .custom("english"))
+        )
+
+        #expect(capturedArguments.contains("--language"))
+        #expect(capturedArguments.contains("english"))
     }
 }

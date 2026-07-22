@@ -10,6 +10,8 @@ public enum AudioSeparatorError: Error {
     case inputFileMissing(URL)
     /// Demucs failed to execute successfully.
     case demucsCommandFailed(String)
+    /// FFmpeg command execution failed.
+    case ffmpegCommandFailed(String)
     /// Expected Demucs output file is missing.
     case missingDemucsOutput(URL)
     /// Cleanup of an auto-created temporary directory failed.

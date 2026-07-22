@@ -13,7 +13,14 @@ struct AudioSeparatorTests {
         #expect(AudioSeparator.DemucsModel.mdxExtraQ.demucsName == "mdx_extra_q")
     }
 
-    @Test("Uses htdemucs by default without extra demucs flags, writes output names, and cleans auto temp directory")
+    @Test("Demucs device enum maps to expected demucs names")
+    func demucsDeviceNames() {
+        #expect(AudioSeparator.DemucsDevice.cpu.demucsName == "cpu")
+        #expect(AudioSeparator.DemucsDevice.cuda.demucsName == "cuda")
+        #expect(AudioSeparator.DemucsDevice.mps.demucsName == "mps")
+    }
+
+    @Test("Uses default demucs flags, writes output names, and cleans auto temp directory")
     func separatesUsingDefaultModel() throws {
         let fileManager = FileManager.default
         let audioDirectory = fileManager.temporaryDirectory
@@ -26,39 +33,57 @@ struct AudioSeparatorTests {
 
         var capturedArguments: [String] = []
         var capturedOutputDirectory: URL?
+        var capturedFFmpegArguments: [String] = []
 
-        let workflow = AudioSeparator(demucsOverride: { arguments in
-            capturedArguments = arguments
+        let workflow = AudioSeparator(
+            demucsOverride: { arguments in
+                capturedArguments = arguments
 
-            let outIndex = arguments.firstIndex(of: "--out")!
-            let outPath = arguments[outIndex + 1]
-            capturedOutputDirectory = URL(fileURLWithPath: outPath, isDirectory: true)
+                let outIndex = arguments.firstIndex(of: "--out")!
+                let outPath = arguments[outIndex + 1]
+                capturedOutputDirectory = URL(fileURLWithPath: outPath, isDirectory: true)
 
-            let nameIndex = arguments.firstIndex(of: "--name")!
-            let modelName = arguments[nameIndex + 1]
+                let nameIndex = arguments.firstIndex(of: "--name")!
+                let modelName = arguments[nameIndex + 1]
 
-            let stemDirectory = URL(fileURLWithPath: outPath, isDirectory: true)
-                .appendingPathComponent(modelName, isDirectory: true)
-                .appendingPathComponent(audioURL.deletingPathExtension().lastPathComponent, isDirectory: true)
-            try fileManager.createDirectory(at: stemDirectory, withIntermediateDirectories: true)
-            try Data("vocals".utf8).write(to: stemDirectory.appendingPathComponent("vocals.wav"))
-            try Data("music".utf8).write(to: stemDirectory.appendingPathComponent("no_vocals.wav"))
-        })
+                let stemDirectory = URL(fileURLWithPath: outPath, isDirectory: true)
+                    .appendingPathComponent(modelName, isDirectory: true)
+                    .appendingPathComponent(audioURL.deletingPathExtension().lastPathComponent, isDirectory: true)
+                try fileManager.createDirectory(at: stemDirectory, withIntermediateDirectories: true)
+                try Data("vocals".utf8).write(to: stemDirectory.appendingPathComponent("vocals.wav"))
+                try Data("music".utf8).write(to: stemDirectory.appendingPathComponent("no_vocals.wav"))
+            },
+            ffmpegOverride: { arguments in
+                capturedFFmpegArguments = arguments
+                try Data("mono".utf8).write(to: URL(fileURLWithPath: arguments.last!))
+                return ""
+            }
+        )
 
         let result = try workflow.separateAudio(at: audioURL)
 
         #expect(capturedArguments.contains("--name"))
-        #expect(capturedArguments.contains("htdemucs"))
-        #expect(argumentValue("--segment", in: capturedArguments) == nil)
-        #expect(argumentValue("--overlap", in: capturedArguments) == nil)
-        #expect(argumentValue("--shifts", in: capturedArguments) == nil)
+        #expect(capturedArguments.contains("htdemucs_ft"))
+        #expect(argumentValue("--device", in: capturedArguments) == "mps")
+        #expect(argumentValue("--segment", in: capturedArguments) == "7")
+        #expect(argumentValue("--overlap", in: capturedArguments) == "0.5")
+        #expect(argumentValue("--shifts", in: capturedArguments) == "10")
         #expect(argumentValue("--jobs", in: capturedArguments) == nil)
+        #expect(capturedFFmpegArguments.contains("-af"))
+        #expect(capturedFFmpegArguments.contains("pan=mono|c0=0.5*c0+0.5*c1"))
+        #expect(capturedFFmpegArguments.contains("-ac"))
+        #expect(capturedFFmpegArguments.contains("1"))
+        #expect(capturedFFmpegArguments.contains("-c:a"))
+        #expect(capturedFFmpegArguments.contains("pcm_s16le"))
+        #expect(capturedFFmpegArguments.contains(result.vocalsURL.path))
+        #expect(capturedFFmpegArguments.last == "\(audioDirectory.path)/vocal-mono.wav")
         #expect(result.vocalsURL.lastPathComponent == "vocals.wav")
         #expect(result.musicURL.lastPathComponent == "music.wav")
         #expect(result.vocalsURL.deletingLastPathComponent() == audioDirectory)
         #expect(result.musicURL.deletingLastPathComponent() == audioDirectory)
         #expect(fileManager.fileExists(atPath: result.vocalsURL.path))
         #expect(fileManager.fileExists(atPath: result.musicURL.path))
+        #expect(fileManager.fileExists(atPath: audioDirectory.appendingPathComponent("vocal-mono.wav").path))
 
         let autoTempDirectoryWasRemoved = capturedOutputDirectory.map { !fileManager.fileExists(atPath: $0.path) } ?? false
         #expect(autoTempDirectoryWasRemoved)
@@ -83,36 +108,44 @@ struct AudioSeparatorTests {
 
         var capturedArguments: [String] = []
 
-        let workflow = AudioSeparator(demucsOverride: { arguments in
-            capturedArguments = arguments
+        let workflow = AudioSeparator(
+            demucsOverride: { arguments in
+                capturedArguments = arguments
 
-            let outIndex = arguments.firstIndex(of: "--out")!
-            let outPath = arguments[outIndex + 1]
+                let outIndex = arguments.firstIndex(of: "--out")!
+                let outPath = arguments[outIndex + 1]
 
-            let nameIndex = arguments.firstIndex(of: "--name")!
-            let modelName = arguments[nameIndex + 1]
+                let nameIndex = arguments.firstIndex(of: "--name")!
+                let modelName = arguments[nameIndex + 1]
 
-            let stemDirectory = URL(fileURLWithPath: outPath, isDirectory: true)
-                .appendingPathComponent(modelName, isDirectory: true)
-                .appendingPathComponent(audioURL.deletingPathExtension().lastPathComponent, isDirectory: true)
-            try fileManager.createDirectory(at: stemDirectory, withIntermediateDirectories: true)
-            try Data("vocals".utf8).write(to: stemDirectory.appendingPathComponent("vocals.wav"))
-            try Data("music".utf8).write(to: stemDirectory.appendingPathComponent("no_vocals.wav"))
-        })
+                let stemDirectory = URL(fileURLWithPath: outPath, isDirectory: true)
+                    .appendingPathComponent(modelName, isDirectory: true)
+                    .appendingPathComponent(audioURL.deletingPathExtension().lastPathComponent, isDirectory: true)
+                try fileManager.createDirectory(at: stemDirectory, withIntermediateDirectories: true)
+                try Data("vocals".utf8).write(to: stemDirectory.appendingPathComponent("vocals.wav"))
+                try Data("music".utf8).write(to: stemDirectory.appendingPathComponent("no_vocals.wav"))
+            },
+            ffmpegOverride: { arguments in
+                try Data("mono".utf8).write(to: URL(fileURLWithPath: arguments.last!))
+                return ""
+            }
+        )
 
         let result = try workflow.separateAudio(
             at: audioURL,
-            configuration: .init(model: .mdxExtraQ, segment: 48, overlap: 0.5, shifts: 2, jobs: 4),
+            configuration: .init(model: .mdxExtraQ, device: .cpu, shifts: 2, overlap: 0.5, segment: 48, jobs: 4),
             temporaryDirectory: providedTemporaryDirectory
         )
 
         #expect(capturedArguments.contains("mdx_extra_q"))
+        #expect(argumentValue("--device", in: capturedArguments) == "cpu")
         #expect(argumentValue("--segment", in: capturedArguments) == "48")
         #expect(argumentValue("--overlap", in: capturedArguments) == "0.5")
         #expect(argumentValue("--shifts", in: capturedArguments) == "2")
         #expect(argumentValue("--jobs", in: capturedArguments) == "4")
         #expect(fileManager.fileExists(atPath: result.vocalsURL.path))
         #expect(fileManager.fileExists(atPath: result.musicURL.path))
+        #expect(fileManager.fileExists(atPath: audioDirectory.appendingPathComponent("vocal-mono.wav").path))
         #expect(fileManager.fileExists(atPath: providedTemporaryDirectory.path))
     }
 
@@ -132,19 +165,27 @@ struct AudioSeparatorTests {
         let audioURL = audioDirectory.appendingPathComponent("track.mp3")
         try Data("demo".utf8).write(to: audioURL)
 
-        let workflow = AudioSeparator(demucsOverride: { arguments in
-            let outIndex = arguments.firstIndex(of: "--out")!
-            let outPath = arguments[outIndex + 1]
-            let nameIndex = arguments.firstIndex(of: "--name")!
-            let modelName = arguments[nameIndex + 1]
+        let workflow = AudioSeparator(
+            demucsOverride: { arguments in
+                let outIndex = arguments.firstIndex(of: "--out")!
+                let outPath = arguments[outIndex + 1]
+                let nameIndex = arguments.firstIndex(of: "--name")!
+                let modelName = arguments[nameIndex + 1]
 
-            let stemDirectory = URL(fileURLWithPath: outPath, isDirectory: true)
-                .appendingPathComponent(modelName, isDirectory: true)
-                .appendingPathComponent(audioURL.deletingPathExtension().lastPathComponent, isDirectory: true)
-            try fileManager.createDirectory(at: stemDirectory, withIntermediateDirectories: true)
-            try Data("vocals".utf8).write(to: stemDirectory.appendingPathComponent("vocals.wav"))
-            try Data("music".utf8).write(to: stemDirectory.appendingPathComponent("no_vocals.wav"))
-        })
+                let stemDirectory = URL(fileURLWithPath: outPath, isDirectory: true)
+                    .appendingPathComponent(modelName, isDirectory: true)
+                    .appendingPathComponent(audioURL.deletingPathExtension().lastPathComponent, isDirectory: true)
+                try fileManager.createDirectory(at: stemDirectory, withIntermediateDirectories: true)
+                try Data("vocals".utf8).write(to: stemDirectory.appendingPathComponent("vocals.wav"))
+                try Data("music".utf8).write(to: stemDirectory.appendingPathComponent("no_vocals.wav"))
+            },
+            ffmpegOverride: { arguments in
+                #expect(arguments.contains("-af"))
+                #expect(arguments.contains("pan=mono|c0=0.5*c0+0.5*c1"))
+                try Data("mono".utf8).write(to: URL(fileURLWithPath: arguments.last!))
+                return ""
+            }
+        )
 
         let result = try workflow.separateAudio(
             at: audioURL,
@@ -155,6 +196,7 @@ struct AudioSeparatorTests {
         #expect(result.musicURL == destinationDirectory.appendingPathComponent("music.wav"))
         #expect(fileManager.fileExists(atPath: result.vocalsURL.path))
         #expect(fileManager.fileExists(atPath: result.musicURL.path))
+        #expect(fileManager.fileExists(atPath: destinationDirectory.appendingPathComponent("vocal-mono.wav").path))
     }
 
     @Test("Rejects overlap outside 0.0 to 0.99")
@@ -209,6 +251,39 @@ struct AudioSeparatorTests {
             _ = try workflow.separateAudio(
                 at: audioURL,
                 configuration: .init(jobs: 0)
+            )
+            Issue.record("Expected invalidDemucsConfiguration error")
+        } catch let error as AudioSeparatorError {
+            switch error {
+            case .invalidDemucsConfiguration:
+                break
+            default:
+                Issue.record("Expected invalidDemucsConfiguration but got \(error)")
+            }
+        } catch {
+            Issue.record("Expected AudioSeparatorError but got \(error)")
+        }
+    }
+
+    @Test("Rejects segment values less than or equal to zero")
+    func rejectsInvalidDemucsSegment() throws {
+        let fileManager = FileManager.default
+        let audioDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("BabelLyricsLibTests-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: audioDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: audioDirectory) }
+
+        let audioURL = audioDirectory.appendingPathComponent("input.wav")
+        try Data("demo".utf8).write(to: audioURL)
+
+        let workflow = AudioSeparator(demucsOverride: { _ in
+            Issue.record("Demucs should not execute when configuration is invalid")
+        })
+
+        do {
+            _ = try workflow.separateAudio(
+                at: audioURL,
+                configuration: .init(segment: 0)
             )
             Issue.record("Expected invalidDemucsConfiguration error")
         } catch let error as AudioSeparatorError {
@@ -307,6 +382,12 @@ struct AudioSeparatorTests {
                 try Data("vocals".utf8).write(to: stemDirectory.appendingPathComponent("vocals.wav"))
                 try Data("music".utf8).write(to: stemDirectory.appendingPathComponent("no_vocals.wav"))
             },
+            ffmpegOverride: { arguments in
+                #expect(arguments.contains("-af"))
+                #expect(arguments.contains("pan=mono|c0=0.5*c0+0.5*c1"))
+                try Data("mono".utf8).write(to: URL(fileURLWithPath: arguments.last!))
+                return ""
+            },
             logger: delegate
         )
 
@@ -348,6 +429,12 @@ struct AudioSeparatorTests {
                 try fileManager.createDirectory(at: stemDirectory, withIntermediateDirectories: true)
                 try Data("vocals".utf8).write(to: stemDirectory.appendingPathComponent("vocals.wav"))
                 try Data("music".utf8).write(to: stemDirectory.appendingPathComponent("no_vocals.wav"))
+            },
+            ffmpegOverride: { arguments in
+                #expect(arguments.contains("-af"))
+                #expect(arguments.contains("pan=mono|c0=0.5*c0+0.5*c1"))
+                try Data("mono".utf8).write(to: URL(fileURLWithPath: arguments.last!))
+                return ""
             },
             logger: delegate
         )

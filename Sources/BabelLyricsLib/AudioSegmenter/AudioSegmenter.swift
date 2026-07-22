@@ -61,12 +61,7 @@ public struct AudioSegmenter {
         logger?.debug("Clean output directory as required")
         try removeExistingSegmentFiles(in: outputDirectory)
 
-        logger?.debug("Convert source audio to mono")
-        let monoAudioURL = outputDirectory
-            .appendingPathComponent("\(audioURL.deletingPathExtension().lastPathComponent)-mono.wav")
-        try createMonoAudio(sourceAudioURL: audioURL, monoAudioURL: monoAudioURL)
-
-        let detectionOutput = try detectSilences(audioURL: monoAudioURL, configuration: configuration)
+        let detectionOutput = try detectSilences(audioURL: audioURL, configuration: configuration)
         let segmentCount = detectionOutput.silences.count
         
         logger?.debug("Detected duration: \(detectionOutput.durationSeconds)")
@@ -75,7 +70,7 @@ public struct AudioSegmenter {
         logger?.debug("Build segments")
         let segmentRanges = buildSegmentRanges(from: detectionOutput.silences, duration: detectionOutput.durationSeconds)
 
-        let segmentSourceURL = monoAudioURL
+        let segmentSourceURL = audioURL
 
         var segments: [AudioSegment] = []
         segments.reserveCapacity(segmentRanges.count)
@@ -103,7 +98,7 @@ public struct AudioSegmenter {
             let outputFileURL = AudioSegment.segmentFileURL(from: segmentSourceURL, index: index)
 
             try createSegment(
-                sourceAudioURL: monoAudioURL,
+                sourceAudioURL: audioURL,
                 startTime: startTime,
                 endTime: endTime,
                 segmentDuration: segmentDuration,
@@ -205,21 +200,6 @@ public struct AudioSegmenter {
             "-t", paddedDuration,
             "-c:a", "pcm_s16le",
             outputFileURL.path
-        ])
-    }
-
-    private func createMonoAudio(
-        sourceAudioURL: URL,
-        monoAudioURL: URL
-    ) throws {
-        logger?.debug("Create mono source file at \(monoAudioURL.lastPathComponent)")
-        _ = try runFFmpeg([
-            "-hide_banner",
-            "-y",
-            "-i", sourceAudioURL.path,
-            "-vn",
-            "-ac", "1",
-            monoAudioURL.path,
         ])
     }
 

@@ -12,6 +12,8 @@ public enum AudioTranscriberError: Error {
     case missingTranscriptOutput(URL)
     /// Could not parse a segment offset from ``AudioSegmenterModel``.
     case invalidSegmentOffset(String)
+    /// Whisper configuration is invalid.
+    case invalidWhisperConfiguration(String)
     /// Cleanup of an auto-created temporary directory failed.
     case failedToRemoveTemporaryDirectory(URL, String)
 }

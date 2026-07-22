@@ -92,7 +92,7 @@ ffmpeg -version
 - `AudioTranscriber`
   - `init(fileManager:whisperOverride:logger:)`
   - `transcribeAudio(from:audioSegmentSourceURL:temporaryDirectory:configuration:) -> AudioTranscriberModel`
-- `AudioTranscriberConfiguration` (`model`, `language`, `temperature`, `beamSize`, `threads`)
+- `AudioTranscriberConfiguration` (`model`, `language`, `task`, `beamSize`, `temperature`, `bestOf`, `conditionOnPreviousText`, `initialPrompt`, `threads`)
 - `AudioTranscriberModel` (`plainLines`)
 - `TranscribedLine` (`segmentIndex`, `startTime`, `endTime`, `text`, `words`)
 - `TranscribedWord` (`startTime`, `endTime`, `text`)
@@ -138,6 +138,8 @@ let separated = try separator.separateAudio(
 
 print(separated.vocalsURL.path) // .../vocals.wav
 print(separated.musicURL.path)  // .../music.wav
+// Also generated in the same directory:
+// .../vocal-mono.wav
 ```
 
 ### 2) Segment vocals/music by silence
@@ -172,7 +174,7 @@ let audioSegmentSourceURL = segmentsDirectory.appendingPathComponent("source.wav
 let transcription = try transcriber.transcribeAudio(
     from: segmented,
     audioSegmentSourceURL: audioSegmentSourceURL,
-    configuration: .init(model: "large", language: "en", beamSize: 5)
+    configuration: .init(model: .large, language: .en, beamSize: 5)
 )
 
 for line in transcription.lines {

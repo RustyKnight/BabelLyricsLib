@@ -34,7 +34,8 @@ public struct AudioTranscriber {
     ///     Segment file paths are resolved via ``AudioSegment/segmentFileURL(from:index:)``.
     ///   - temporaryDirectory: Optional working directory for Whisper output.
     ///     When omitted, a temporary directory is created and removed after processing.
-    ///   - configuration: Whisper configuration. Defaults to model `large`, language `en`, temperature `0.0`.
+    ///   - configuration: Whisper configuration. Defaults to model `large`, language `en`,
+    ///     task `transcribe`, beam size `5`, and temperature `0.0`.
     /// - Returns: A Codable transcription result containing lines and timed words in source order.
     /// - Throws: ``AudioTranscriberError`` or underlying filesystem/process errors.
     public func transcribeAudio(
@@ -43,6 +44,15 @@ public struct AudioTranscriber {
         temporaryDirectory: URL? = nil,
         configuration: AudioTranscriberConfiguration = .init()
     ) throws -> AudioTranscriberModel {
+        if configuration.beamSize <= 0 {
+            logger?.error("Whisper beam size must be greater than zero")
+            throw AudioTranscriberError.invalidWhisperConfiguration("beamSize must be greater than 0")
+        }
+        if let bestOf = configuration.bestOf, bestOf <= 0 {
+            logger?.error("Whisper best_of must be greater than zero")
+            throw AudioTranscriberError.invalidWhisperConfiguration("bestOf must be greater than 0")
+        }
+
         let shouldCleanupTemporaryDirectory = temporaryDirectory == nil
         let workingTemporaryDirectory: URL
         if let temporaryDirectory {
@@ -198,18 +208,26 @@ public struct AudioTranscriber {
             .appendingPathComponent("segment-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: segmentOutputDirectory, withIntermediateDirectories: true)
 
-        let effectiveTemperature = configuration.beamSize == nil ? configuration.temperature : 0.0
+        let device = preferredWhisperDevice()
+        let fp16Enabled = device != "cpu"
         var arguments = [
-            "--model", configuration.model,
-            "--language", configuration.language,
-            "--temperature", String(effectiveTemperature),
-            "--device", "cpu",
-            "--task", "transcribe",
+            "--model", configuration.model.name,
+            "--language", configuration.language.code,
+            "--task", configuration.task.rawValue,
+            "--beam_size", String(configuration.beamSize),
+            "--temperature", String(configuration.temperature),
+            "--condition_on_previous_text", configuration.conditionOnPreviousText ? "True" : "False",
             "--output_format", "json",
             "--word_timestamps", "True",
+            "--device", device,
+            "--fp16", fp16Enabled ? "True" : "False",
         ]
-        if let beamSize = configuration.beamSize {
-            arguments.append(contentsOf: ["--beam_size", String(beamSize)])
+        if let bestOf = configuration.bestOf {
+            arguments.append(contentsOf: ["--best_of", String(bestOf)])
+        }
+        if let initialPrompt = configuration.initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !initialPrompt.isEmpty {
+            arguments.append(contentsOf: ["--initial_prompt", initialPrompt])
         }
         if let threads = configuration.threads {
             arguments.append(contentsOf: ["--threads", String(threads)])
@@ -331,6 +349,14 @@ public struct AudioTranscriber {
         throw AudioTranscriberError.whisperCommandFailed(
             "Unable to locate whisper executable via common install paths or `which whisper`.\n\(stderr)"
         )
+    }
+
+    private func preferredWhisperDevice() -> String {
+        #if os(macOS)
+        return "mps"
+        #else
+        return "cpu"
+        #endif
     }
 
     private func seconds(from time: String) throws -> Double {
