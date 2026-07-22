@@ -232,14 +232,7 @@ public struct VideoRenderer {
         request: VideoRenderRequest,
         configuration: VideoRendererConfiguration
     ) {
-        let visibleLines = request.displayLines
-            .filter { timestampSeconds >= $0.displayStartSeconds && timestampSeconds <= $0.displayEndSeconds }
-            .sorted { lhs, rhs in
-                if lhs.stackLevel != rhs.stackLevel {
-                    return lhs.stackLevel < rhs.stackLevel
-                }
-                return lhs.activeStartSeconds < rhs.activeStartSeconds
-            }
+        let visibleLines = visibleLines(at: timestampSeconds, from: request.displayLines)
 
         guard !visibleLines.isEmpty else {
             return
@@ -252,7 +245,7 @@ public struct VideoRenderer {
         let strokeWidth: CGFloat = 6.0
         let stackStride = lyricStackStride(font: font, strokeWidth: strokeWidth)
 
-        for line in visibleLines {
+        for (stackLevel, line) in visibleLines.enumerated() {
             drawLine(
                 line,
                 in: context,
@@ -261,12 +254,27 @@ public struct VideoRenderer {
                 maximumTextHeight: maximumTextHeight,
                 horizontalPadding: configuration.horizontalPadding,
                 bottomPadding: configuration.bottomPadding,
+                stackLevel: stackLevel,
                 stackStride: stackStride,
                 font: font,
                 paragraphStyle: paragraphStyle,
                 strokeWidth: strokeWidth
             )
         }
+    }
+
+    func visibleLines(at timestampSeconds: Double, from displayLines: [VideoRenderLine]) -> [VideoRenderLine] {
+        displayLines
+            .filter { timestampSeconds >= $0.displayStartSeconds && timestampSeconds <= $0.displayEndSeconds }
+            .sorted { lhs, rhs in
+                if lhs.displayStartSeconds != rhs.displayStartSeconds {
+                    return lhs.displayStartSeconds < rhs.displayStartSeconds
+                }
+                if lhs.activeStartSeconds != rhs.activeStartSeconds {
+                    return lhs.activeStartSeconds < rhs.activeStartSeconds
+                }
+                return lhs.stackLevel < rhs.stackLevel
+            }
     }
 
     private func drawLine(
@@ -277,6 +285,7 @@ public struct VideoRenderer {
         maximumTextHeight: CGFloat,
         horizontalPadding: Int,
         bottomPadding: Int,
+        stackLevel: Int,
         stackStride: CGFloat,
         font: CTFont,
         paragraphStyle: CTParagraphStyle,
@@ -306,7 +315,7 @@ public struct VideoRenderer {
             nil
         )
         let textHeight = max(ceil(suggestedSize.height), 56)
-        let originY = CGFloat(bottomPadding) + (CGFloat(line.stackLevel) * stackStride)
+        let originY = CGFloat(bottomPadding) + (CGFloat(stackLevel) * stackStride)
         let textRect = CGRect(
             x: CGFloat(horizontalPadding),
             y: originY,
@@ -524,11 +533,7 @@ public struct VideoRenderer {
             guard displayEnd > displayStart else { continue }
 
             activeDisplayLines = activeDisplayLines.filter { $0.displayEnd > displayStart }
-            let usedLevels = Set(activeDisplayLines.map(\.stackLevel))
-            var stackLevel = 0
-            while usedLevels.contains(stackLevel) {
-                stackLevel += 1
-            }
+            let stackLevel = activeDisplayLines.count
             activeDisplayLines.append(.init(displayEnd: displayEnd, stackLevel: stackLevel))
 
             let words = line.words

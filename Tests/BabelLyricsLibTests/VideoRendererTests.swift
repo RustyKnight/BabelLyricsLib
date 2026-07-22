@@ -129,8 +129,8 @@ struct VideoRendererTests {
         #expect(thirdLine.stackLevel == 2)
     }
 
-    @Test("Reuses empty stack slot while higher line remains visible")
-    func reusesFreedStackSlots() throws {
+    @Test("New lines are added on top and remaining lines collapse down when lower lines end")
+    func collapsesStackWhenLowerLineEnds() throws {
         let fileManager = FileManager.default
         let workspace = fileManager.temporaryDirectory
             .appendingPathComponent("VideoRendererTests-\(UUID().uuidString)", isDirectory: true)
@@ -144,9 +144,9 @@ struct VideoRendererTests {
                 TranscribedLine(
                     segmentIndex: 1,
                     startTime: .seconds(1),
-                    endTime: .seconds(3),
+                    endTime: .seconds(5),
                     text: "line one",
-                    words: [TranscribedWord(startTime: .seconds(0), endTime: .seconds(2), text: "line")]
+                    words: [TranscribedWord(startTime: .seconds(0), endTime: .seconds(4), text: "line")]
                 ),
                 TranscribedLine(
                     segmentIndex: 2,
@@ -157,10 +157,10 @@ struct VideoRendererTests {
                 ),
                 TranscribedLine(
                     segmentIndex: 3,
-                    startTime: .seconds(6.2),
+                    startTime: .seconds(4),
                     endTime: .seconds(8),
                     text: "line three",
-                    words: [TranscribedWord(startTime: .seconds(0), endTime: .seconds(1.8), text: "line")]
+                    words: [TranscribedWord(startTime: .seconds(0), endTime: .seconds(4), text: "line")]
                 ),
             ]
         )
@@ -181,9 +181,19 @@ struct VideoRendererTests {
 
         #expect(firstLine.stackLevel == 0)
         #expect(secondLine.stackLevel == 1)
-        #expect(thirdLine.stackLevel == 0)
-        #expect(firstLine.displayEndSeconds < thirdLine.displayStartSeconds)
+        #expect(thirdLine.stackLevel == 2)
         #expect(secondLine.displayEndSeconds > thirdLine.displayStartSeconds)
+
+        let beforeFirstLineEnds = renderer.visibleLines(at: 5.5, from: request.displayLines)
+        #expect(beforeFirstLineEnds.count == 3)
+        #expect(beforeFirstLineEnds[0].text == "line one")
+        #expect(beforeFirstLineEnds[1].text == "line two")
+        #expect(beforeFirstLineEnds[2].text == "line three")
+
+        let afterFirstLineEnds = renderer.visibleLines(at: 6.3, from: request.displayLines)
+        #expect(afterFirstLineEnds.count == 2)
+        #expect(afterFirstLineEnds[0].text == "line two")
+        #expect(afterFirstLineEnds[1].text == "line three")
     }
 
     @Test("Supports custom resolution based on height and ratio")
