@@ -28,7 +28,7 @@ public extension AudioSeparator {
         public init(
             model: AudioSeparator.DemucsModel = .htdemucsFT,
             device: AudioSeparator.DemucsDevice = .mps,
-            shifts: Int? = 10,
+            shifts: Int? = nil,
             overlap: Double? = 0.5,
             segment: Int? = 7,
             jobs: Int? = nil

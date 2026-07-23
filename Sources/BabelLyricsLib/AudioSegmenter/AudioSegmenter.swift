@@ -95,7 +95,11 @@ public struct AudioSegmenter {
                 continue
             }
 
-            let outputFileURL = AudioSegment.segmentFileURL(from: segmentSourceURL, index: index)
+            let outputFileURL = segmentFileURL(
+                in: outputDirectory,
+                sourceURL: segmentSourceURL,
+                index: index
+            )
 
             try createSegment(
                 sourceAudioURL: audioURL,
@@ -201,6 +205,22 @@ public struct AudioSegmenter {
             "-c:a", "pcm_s16le",
             outputFileURL.path
         ])
+    }
+
+    private func segmentFileURL(
+        in outputDirectory: URL,
+        sourceURL: URL,
+        index: Int
+    ) -> URL {
+        let fileExtension: String
+        if sourceURL.isDirectory {
+            fileExtension = "wav"
+        } else {
+            fileExtension = sourceURL.pathExtension.isEmpty ? "wav" : sourceURL.pathExtension
+        }
+
+        let fileName = "vocal-segment-\(String(format: "%04d", index)).\(fileExtension)"
+        return outputDirectory.appendingPathComponent(fileName)
     }
 
     private func parseDuration(from output: String) -> Double? {

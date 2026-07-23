@@ -208,6 +208,36 @@ struct VideoRendererTests {
         #expect(configuration.framesPerSecond == 30)
     }
 
+    @Test("Video renderer configuration is codable")
+    func videoRendererConfigurationCodableRoundTrip() throws {
+        let configuration = VideoRendererConfiguration(
+            resolution: .widthRatio(width: 1920, aspectRatio: 16.0 / 9.0),
+            framesPerSecond: 30,
+            preRollPaddingSeconds: 0.75,
+            postRollPaddingSeconds: 1.25,
+            horizontalPadding: 96,
+            bottomPadding: 84,
+            outputFileExtension: "mp4"
+        )
+
+        let encoded = try JSONEncoder().encode(configuration)
+        let decoded = try JSONDecoder().decode(VideoRendererConfiguration.self, from: encoded)
+
+        switch decoded.resolution {
+        case let .widthRatio(width, aspectRatio):
+            #expect(width == 1920)
+            #expect(aspectRatio == 16.0 / 9.0)
+        default:
+            Issue.record("Expected widthRatio resolution after Codable round-trip.")
+        }
+        #expect(decoded.framesPerSecond == 30)
+        #expect(decoded.preRollPaddingSeconds == 0.75)
+        #expect(decoded.postRollPaddingSeconds == 1.25)
+        #expect(decoded.horizontalPadding == 96)
+        #expect(decoded.bottomPadding == 84)
+        #expect(decoded.outputFileExtension == "mp4")
+    }
+
     @Test("Rejects non-positive frame rate")
     func rejectsInvalidFrameRate() throws {
         let renderer = VideoRenderer()

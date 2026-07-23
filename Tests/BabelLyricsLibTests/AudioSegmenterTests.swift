@@ -16,7 +16,7 @@ struct AudioSegmenterTests {
         let audioURL = workspace.appendingPathComponent("song.mp3")
         try Data("audio".utf8).write(to: audioURL)
 
-        let staleSegment = outputDirectory.appendingPathComponent("vocal-segment-0001.mp3")
+        let staleSegment = outputDirectory.appendingPathComponent("vocal-segment-9999.mp3")
         try Data("stale".utf8).write(to: staleSegment)
         let unrelatedFile = outputDirectory.appendingPathComponent("keep.txt")
         try Data("keep".utf8).write(to: unrelatedFile)
@@ -68,9 +68,8 @@ struct AudioSegmenterTests {
         #expect(segmentArguments.first?.contains(where: { $0.contains("apad=pad_dur=0.5") }) == true)
 
         for segment in result.segments {
-            let segmentURL = AudioSegment.segmentFileURL(
-                from: audioURL,
-                index: segment.index
+            let segmentURL = outputDirectory.appendingPathComponent(
+                "vocal-segment-\(String(format: "%04d", segment.index)).mp3"
             )
             #expect(fileManager.fileExists(atPath: segmentURL.path))
         }

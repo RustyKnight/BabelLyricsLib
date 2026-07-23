@@ -37,3 +37,33 @@ Depending on your Whisper install/version, you may also have:
 * large-v3
 * large-v3-turbo
 * turbo
+
+## Progress feedback
+
+`AudioTranscriber.transcribeAudio(...)` can report normalized progress and ETA across all
+segments via a closure callback. For async code, `transcribeAudioProgressStream(...)` exposes
+the same updates as an `AsyncThrowingStream`.
+
+```swift
+let transcription = try transcriber.transcribeAudio(
+    from: segments,
+    audioSegmentSourceURL: sourceURL
+) { progress in
+    print(progress.fractionCompleted)
+    print(progress.estimatedTimeRemaining ?? .seconds(0))
+}
+```
+
+```swift
+for try await event in transcriber.transcribeAudioProgressStream(
+    from: segments,
+    audioSegmentSourceURL: sourceURL
+) {
+    switch event {
+    case let .progress(update):
+        print(update.message ?? "Transcribing...")
+    case .completed(let result):
+        print(result.plainLines)
+    }
+}
+```

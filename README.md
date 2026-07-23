@@ -69,10 +69,15 @@ ffmpeg -version
 ### Audio separation
 
 - `AudioSeparator`
-  - `init(fileManager:demucsOverride:logger:)`
-  - `separateAudio(at:configuration:destinationDirectory:temporaryDirectory:) -> AudioSeparatorModel`
+  - `init(fileManager:demucsOverride:ffmpegOverride:logger:)`
+  - `separateAudio(at:configuration:destinationDirectory:temporaryDirectory:onProgress:) -> AudioSeparatorModel`
+  - `separateAudioProgressStream(at:configuration:destinationDirectory:temporaryDirectory:) -> AsyncThrowingStream<AudioSeparator.ProgressEvent, Error>`
 - `AudioSeparator.DemucsModel` (`.htdemucs`, `.htdemucsFT`, `.htdemucs6s`, `.mdxExtra`, `.mdxExtraQ`)
-- `AudioSeparator.DemucsConfiguration` (`model`, `segment`, `overlap`, `shifts`, `jobs`)
+- `AudioSeparator.DemucsDevice` (`.cpu`, `.cuda`, `.mps`)
+- `AudioSeparator.DemucsConfiguration` (`model`, `device`, `segment`, `overlap`, `shifts`, `jobs`)
+- `AudioSeparator.Files` (`.vocals`, `.music`, `.vocalsMono`)
+- `AudioSeparator.Progress` (`fractionCompleted`, `completedPasses`, `totalPasses`, `currentPassFraction`, `estimatedTimeRemaining`, `message`)
+- `AudioSeparator.ProgressEvent` (`.progress`, `.completed`)
 - `AudioSeparatorModel` (`vocalsURL`, `musicURL`)
 - `AudioSeparatorError`
 
@@ -91,9 +96,12 @@ ffmpeg -version
 
 - `AudioTranscriber`
   - `init(fileManager:whisperOverride:logger:)`
-  - `transcribeAudio(from:audioSegmentSourceURL:temporaryDirectory:configuration:) -> AudioTranscriberModel`
+  - `transcribeAudio(from:audioSegmentSourceURL:temporaryDirectory:configuration:onProgress:) -> AudioTranscriberModel`
+  - `transcribeAudioProgressStream(from:audioSegmentSourceURL:temporaryDirectory:configuration:) -> AsyncThrowingStream<AudioTranscriber.ProgressEvent, Error>`
 - `AudioTranscriberConfiguration` (`model`, `language`, `task`, `beamSize`, `temperature`, `bestOf`, `conditionOnPreviousText`, `initialPrompt`, `threads`)
 - `AudioTranscriberModel` (`plainLines`)
+- `AudioTranscriber.Progress` (`fractionCompleted`, `completedSegments`, `totalSegments`, `currentSegmentIndex`, `currentSegmentFraction`, `estimatedTimeRemaining`, `message`)
+- `AudioTranscriber.ProgressEvent` (`.progress`, `.completed`)
 - `TranscribedLine` (`segmentIndex`, `startTime`, `endTime`, `text`, `words`)
 - `TranscribedWord` (`startTime`, `endTime`, `text`)
 - `AudioTranscriberError`
@@ -139,7 +147,100 @@ let separated = try separator.separateAudio(
 print(separated.vocalsURL.path) // .../vocals.wav
 print(separated.musicURL.path)  // .../music.wav
 // Also generated in the same directory:
-// .../vocal-mono.wav
+// .../vocals-mono.wav
+
+let monoURL = AudioSeparator.Files.vocalsMono.url(
+    in: URL(fileURLWithPath: "/path/to/output", isDirectory: true)
+)
+print(monoURL.lastPathComponent) // vocals-mono.wav
+```
+
+### 1a) Separate audio with closure-based progress callback
+
+```swift
+let separator = AudioSeparator()
+let separated = try separator.separateAudio(
+    at: URL(fileURLWithPath: "/path/to/song.mp3"),
+    configuration: .init(model: .htdemucsFT, device: .mps)
+) { progress in
+    let percent = Int(progress.fractionCompleted * 100)
+    print("Demucs progress: \(percent)% (\(progress.completedPasses)/\(progress.totalPasses) passes)")
+    if let eta = progress.estimatedTimeRemaining {
+        print("ETA: \(eta)")
+    }
+}
+```
+
+### 1b) Separate audio with async/await progress stream (SwiftUI)
+
+```swift
+import SwiftUI
+import BabelLyricsLib
+
+@MainActor
+final class SeparationViewModel: ObservableObject {
+    @Published var progress: Double = 0
+    @Published var status: String = "Idle"
+
+    private let separator = AudioSeparator()
+
+    func run(inputURL: URL, outputURL: URL) {
+        Task {
+            do {
+                for try await event in separator.separateAudioProgressStream(
+                    at: inputURL,
+                    destinationDirectory: outputURL
+                ) {
+                    switch event {
+                    case let .progress(update):
+                        progress = update.fractionCompleted
+                        status = update.message ?? "Separating..."
+                    case .completed:
+                        progress = 1
+                        status = "Completed"
+                    }
+                }
+            } catch {
+                status = "Failed: \(error.localizedDescription)"
+            }
+        }
+    }
+}
+```
+
+### 1c) Separate audio with Combine progress publisher
+
+```swift
+import Foundation
+import Combine
+import BabelLyricsLib
+
+final class SeparationService {
+    private let separator = AudioSeparator()
+
+    func separatePublisher(
+        inputURL: URL,
+        outputURL: URL
+    ) -> AnyPublisher<AudioSeparator.ProgressEvent, Error> {
+        let subject = PassthroughSubject<AudioSeparator.ProgressEvent, Error>()
+
+        Task {
+            do {
+                for try await event in separator.separateAudioProgressStream(
+                    at: inputURL,
+                    destinationDirectory: outputURL
+                ) {
+                    subject.send(event)
+                }
+                subject.send(completion: .finished)
+            } catch {
+                subject.send(completion: .failure(error))
+            }
+        }
+
+        return subject.eraseToAnyPublisher()
+    }
+}
 ```
 
 ### 2) Segment vocals/music by silence
@@ -179,6 +280,58 @@ let transcription = try transcriber.transcribeAudio(
 
 for line in transcription.lines {
     print("[segment \(line.segmentIndex)] \(line.text)")
+}
+```
+
+### 3a) Transcribe with closure-based progress callback
+
+```swift
+let transcription = try transcriber.transcribeAudio(
+    from: segmented,
+    audioSegmentSourceURL: audioSegmentSourceURL
+) { progress in
+    let percent = Int(progress.fractionCompleted * 100)
+    print("Whisper progress: \(percent)%")
+    if let eta = progress.estimatedTimeRemaining {
+        print("ETA: \(eta)")
+    }
+}
+```
+
+### 3b) Transcribe with async/await progress stream
+
+```swift
+import SwiftUI
+import BabelLyricsLib
+
+@MainActor
+final class TranscriptionViewModel: ObservableObject {
+    @Published var progress: Double = 0
+    @Published var status: String = "Idle"
+
+    private let transcriber = AudioTranscriber()
+
+    func run(segmentResult: AudioSegmenterModel, sourceURL: URL) {
+        Task {
+            do {
+                for try await event in transcriber.transcribeAudioProgressStream(
+                    from: segmentResult,
+                    audioSegmentSourceURL: sourceURL
+                ) {
+                    switch event {
+                    case let .progress(update):
+                        progress = update.fractionCompleted
+                        status = update.message ?? "Transcribing..."
+                    case .completed:
+                        progress = 1
+                        status = "Completed"
+                    }
+                }
+            } catch {
+                status = "Failed: \(error.localizedDescription)"
+            }
+        }
+    }
 }
 ```
 

@@ -1,11 +1,10 @@
 import Foundation
 
 /// Separates an input audio file into vocals and music tracks using Demucs.
-public struct AudioSeparator {
+public struct AudioSeparator: @unchecked Sendable {
     private let fileManager: FileManager
     private let demucsOverride: (([String]) throws -> Void)?
     private let ffmpegOverride: (([String]) throws -> String)?
-    
     private let logger: LogService?
 
     /// Creates an audio separator.
@@ -33,15 +32,16 @@ public struct AudioSeparator {
 
     /// Splits an audio file into vocal-only and music-only WAV tracks.
     ///
-    /// Output files are written alongside the input file as `vocals.wav`, `music.wav`, and `vocal-mono.wav`.
+    /// Output files are written alongside the input file using ``AudioSeparator/Files`` names.
     ///
     /// - Parameters:
     ///   - audioURL: Local URL to the input audio file.
     ///   - configuration: Optional Demucs command configuration. Defaults to ``AudioSeparator/DemucsConfiguration``.
-    ///   - destinationDirectory: Optional directory where `vocals.wav`, `music.wav`, and `vocal-mono.wav` are exported.
+    ///   - destinationDirectory: Optional directory where ``AudioSeparator/Files`` entries are exported.
     ///     When omitted, files are written beside the source audio file.
     ///   - temporaryDirectory: Optional output working directory for Demucs intermediate output.
     ///     When omitted, a temporary directory is created and removed after processing.
+    ///   - onProgress: Optional callback for normalized separation progress updates.
     ///
     /// When a logger delegate is supplied at initialization, this method emits debug, info, and
     /// error messages describing validation, command execution, and cleanup steps.
@@ -52,7 +52,8 @@ public struct AudioSeparator {
         at audioURL: URL,
         configuration: AudioSeparator.DemucsConfiguration = .init(),
         destinationDirectory: URL? = nil,
-        temporaryDirectory: URL? = nil
+        temporaryDirectory: URL? = nil,
+        onProgress: ProgressHandler? = nil
     ) throws -> AudioSeparatorModel {
         guard audioURL.isFileURL else {
             logger?.error("Audio source must be a file")
@@ -107,7 +108,8 @@ public struct AudioSeparator {
                 audioURL: audioURL,
                 configuration: configuration,
                 outputDirectory: workingTemporaryDirectory,
-                destinationDirectory: destinationDirectory ?? audioURL.deletingLastPathComponent()
+                destinationDirectory: destinationDirectory ?? audioURL.deletingLastPathComponent(),
+                onProgress: onProgress
             )
             logger?.info("Completed separating audio in \(stopWatch.formattedUnitsStyle())")
         } catch {
@@ -144,7 +146,8 @@ public struct AudioSeparator {
         audioURL: URL,
         configuration: AudioSeparator.DemucsConfiguration,
         outputDirectory: URL,
-        destinationDirectory: URL
+        destinationDirectory: URL,
+        onProgress: ProgressHandler?
     ) throws -> AudioSeparatorModel {
         var arguments = [
             "--two-stems", "vocals",
@@ -165,11 +168,34 @@ public struct AudioSeparator {
             arguments.append(contentsOf: ["--jobs", String(jobs)])
         }
         arguments.append(contentsOf: ["--out", outputDirectory.path, audioURL.path])
+
+        let totalPasses = max(1, configuration.shifts ?? 1)
+        onProgress?(
+            .init(
+                fractionCompleted: 0,
+                completedPasses: 0,
+                totalPasses: totalPasses,
+                currentPassFraction: 0,
+                estimatedTimeRemaining: nil,
+                message: "Starting Demucs separation"
+            )
+        )
+
         if let demucsOverride {
             logger?.debug("Execute override Demucs")
             try demucsOverride(arguments)
+            onProgress?(
+                .init(
+                    fractionCompleted: 1,
+                    completedPasses: totalPasses,
+                    totalPasses: totalPasses,
+                    currentPassFraction: 1,
+                    estimatedTimeRemaining: .zero,
+                    message: "Demucs override completed"
+                )
+            )
         } else {
-            try executeDemucs(arguments: arguments)
+            try executeDemucs(arguments: arguments, shifts: configuration.shifts ?? 1, onProgress: onProgress)
         }
 
         let sourceStemDirectory = outputDirectory
@@ -186,9 +212,9 @@ public struct AudioSeparator {
         }
 
         try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
-        let destinationVocalsURL = destinationDirectory.appendingPathComponent("vocals.wav")
-        let destinationMusicURL = destinationDirectory.appendingPathComponent("music.wav")
-        let destinationMonoVocalsURL = destinationDirectory.appendingPathComponent("vocal-mono.wav")
+        let destinationVocalsURL = Files.vocals.url(in: destinationDirectory)
+        let destinationMusicURL = Files.music.url(in: destinationDirectory)
+        let destinationMonoVocalsURL = Files.vocalsMono.url(in: destinationDirectory)
 
         if fileManager.fileExists(atPath: destinationVocalsURL.path) {
             try fileManager.removeItem(at: destinationVocalsURL)
@@ -221,12 +247,16 @@ public struct AudioSeparator {
         ])
     }
 
-    private func executeDemucs(arguments: [String]) throws {
+    private func executeDemucs(
+        arguments: [String],
+        shifts: Int,
+        onProgress: ProgressHandler?
+    ) throws {
         let process = Process()
-        
+
         let executable = "/usr/bin/env"
         let commandArguments = ["python3", "-m", "demucs.separate"] + arguments
-        
+
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = ["python3", "-m", "demucs.separate"] + arguments
 
@@ -241,12 +271,31 @@ public struct AudioSeparator {
         process.standardError = logHandle
 
         try process.run()
+        let progressMonitor = DemucsProgressMonitor(
+            fileURL: logFileURL,
+            expectedShifts: shifts,
+            onProgress: onProgress
+        )
+        progressMonitor.start()
         process.waitUntilExit()
+        progressMonitor.stop()
         try logHandle.close()
 
         let outputData = try Data(contentsOf: logFileURL)
         try? fileManager.removeItem(at: logFileURL)
         let output = String(data: outputData, encoding: .utf8) ?? "Demucs command failed."
+        if process.terminationStatus == 0 {
+            onProgress?(
+                .init(
+                    fractionCompleted: 1,
+                    completedPasses: progressMonitor.totalPasses,
+                    totalPasses: progressMonitor.totalPasses,
+                    currentPassFraction: 1,
+                    estimatedTimeRemaining: .zero,
+                    message: "Demucs separation completed"
+                )
+            )
+        }
         guard process.terminationStatus == 0 else {
             throw AudioSeparatorError.demucsCommandFailed(output)
         }
@@ -322,5 +371,184 @@ public struct AudioSeparator {
         throw AudioSeparatorError.ffmpegCommandFailed(
             "Unable to locate ffmpeg executable via common install paths or `which ffmpeg`.\n\(stderr)"
         )
+    }
+}
+
+private struct DemucsProgressEstimator {
+    private var modelPasses = 1
+    private let shifts: Int
+    private let startedAt = Date()
+    private var completedPasses = 0
+    private var currentPassFraction: Double = 0
+    private var lastPercent: Double?
+    private var lastEmittedFraction: Double = -1
+
+    init(shifts: Int) {
+        self.shifts = max(1, shifts)
+    }
+
+    var totalPasses: Int {
+        max(1, modelPasses * shifts)
+    }
+
+    mutating func progressUpdates(from text: String) -> [AudioSeparator.Progress] {
+        var updates: [AudioSeparator.Progress] = []
+        for line in splitProgressLines(in: text) {
+            if let parsedModelPasses = parseModelPasses(from: line), parsedModelPasses > 0 {
+                modelPasses = parsedModelPasses
+            }
+            guard let percent = parsePercent(from: line) else {
+                continue
+            }
+
+            if let lastPercent, percent + 3 < lastPercent, lastPercent >= 90, completedPasses < totalPasses {
+                completedPasses += 1
+            }
+            lastPercent = percent
+            currentPassFraction = max(0, min(1, percent / 100))
+
+            let normalized = normalizedProgress()
+            if normalized <= lastEmittedFraction {
+                continue
+            }
+            lastEmittedFraction = normalized
+            updates.append(
+                .init(
+                    fractionCompleted: normalized,
+                    completedPasses: completedPasses,
+                    totalPasses: totalPasses,
+                    currentPassFraction: currentPassFraction,
+                    estimatedTimeRemaining: estimatedRemaining(for: normalized),
+                    message: line
+                )
+            )
+        }
+        return updates
+    }
+
+    private func normalizedProgress() -> Double {
+        let value = (Double(completedPasses) + currentPassFraction) / Double(totalPasses)
+        return max(0, min(1, value))
+    }
+
+    private func estimatedRemaining(for fractionCompleted: Double) -> Duration? {
+        guard fractionCompleted > 0.01 else {
+            return nil
+        }
+        let elapsed = Date().timeIntervalSince(startedAt)
+        let estimatedTotal = elapsed / fractionCompleted
+        let remaining = max(0, estimatedTotal - elapsed)
+        return .seconds(remaining)
+    }
+
+    private func splitProgressLines(in text: String) -> [String] {
+        text.split(whereSeparator: { $0.isNewline || $0 == "\r" })
+            .map(String.init)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func parseModelPasses(from line: String) -> Int? {
+        guard let matchRange = line.range(of: #"bag of (\d+) models"#, options: .regularExpression) else {
+            return nil
+        }
+        let matchedText = String(line[matchRange])
+        guard let numberRange = matchedText.range(of: #"\d+"#, options: .regularExpression) else {
+            return nil
+        }
+        return Int(matchedText[numberRange])
+    }
+
+    private func parsePercent(from line: String) -> Double? {
+        guard let percentRange = line.range(of: #"\d{1,3}(?:\.\d+)?%"#, options: .regularExpression) else {
+            return nil
+        }
+        let percentText = String(line[percentRange]).replacingOccurrences(of: "%", with: "")
+        return Double(percentText)
+    }
+}
+
+private final class DemucsProgressMonitor: @unchecked Sendable {
+    private let fileURL: URL
+    private let onProgress: AudioSeparator.ProgressHandler?
+    private let lock = NSLock()
+    private var isRunning = false
+    private var thread: Thread?
+    private var estimator: DemucsProgressEstimator
+
+    init(fileURL: URL, expectedShifts: Int, onProgress: AudioSeparator.ProgressHandler?) {
+        self.fileURL = fileURL
+        self.onProgress = onProgress
+        estimator = .init(shifts: expectedShifts)
+    }
+
+    var totalPasses: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return estimator.totalPasses
+    }
+
+    func start() {
+        guard onProgress != nil else {
+            return
+        }
+        lock.lock()
+        guard !isRunning else {
+            lock.unlock()
+            return
+        }
+        isRunning = true
+        lock.unlock()
+
+        thread = Thread { [weak self] in
+            self?.run()
+        }
+        thread?.name = "BabelLyricsLib-DemucsProgressMonitor"
+        thread?.start()
+    }
+
+    func stop() {
+        lock.lock()
+        isRunning = false
+        let runningThread = thread
+        lock.unlock()
+
+        while runningThread?.isExecuting == true {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        thread = nil
+    }
+
+    private func run() {
+        guard let onProgress else {
+            return
+        }
+        var fileOffset: UInt64 = 0
+        while true {
+            lock.lock()
+            let running = isRunning
+            lock.unlock()
+            if !running {
+                break
+            }
+            do {
+                let handle = try FileHandle(forReadingFrom: fileURL)
+                try handle.seek(toOffset: fileOffset)
+                let data = try handle.readToEnd() ?? Data()
+                fileOffset += UInt64(data.count)
+                try handle.close()
+                if !data.isEmpty, let text = String(data: data, encoding: .utf8) {
+                    lock.lock()
+                    let updates = estimator.progressUpdates(from: text)
+                    lock.unlock()
+                    for update in updates {
+                        onProgress(update)
+                    }
+                }
+            } catch {
+                // Ignore transient file read errors while process is still running.
+            }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
     }
 }

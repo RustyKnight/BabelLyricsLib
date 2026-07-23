@@ -2,6 +2,23 @@ import Foundation
 import Testing
 @testable import BabelLyricsLib
 
+private final class ProgressStore<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Value] = []
+
+    func append(_ value: Value) {
+        lock.lock()
+        values.append(value)
+        lock.unlock()
+    }
+
+    func snapshot() -> [Value] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
+}
+
 @Suite("Audio transcriber workflow")
 struct AudioTranscriberTests {
     @Test("Transcribes segments, maps times to source context, and cleans auto temp directory")
@@ -90,7 +107,7 @@ struct AudioTranscriberTests {
         let result = try workflow.transcribeAudio(from: segmentResult, audioSegmentSourceURL: segmentSourceURL)
 
         #expect(capturedArguments.contains("--model"))
-        #expect(capturedArguments.contains("large"))
+        #expect(capturedArguments.contains("large-v3"))
         #expect(capturedArguments.contains("--language"))
         #expect(capturedArguments.contains("en"))
         #expect(capturedArguments.contains("--temperature"))
@@ -483,5 +500,126 @@ struct AudioTranscriberTests {
 
         #expect(capturedArguments.contains("--language"))
         #expect(capturedArguments.contains("english"))
+    }
+
+    @Test("Reports progress through callback")
+    func reportsProgressThroughCallback() throws {
+        let fileManager = FileManager.default
+        let workspace = fileManager.temporaryDirectory
+            .appendingPathComponent("AudioTranscriberTests-\(UUID().uuidString)", isDirectory: true)
+        let segmentsDirectory = workspace.appendingPathComponent("segments", isDirectory: true)
+        try fileManager.createDirectory(at: segmentsDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: workspace) }
+
+        let segmentSourceURL = segmentsDirectory.appendingPathComponent("song.mp3")
+        let segmentURL = AudioSegment.segmentFileURL(from: segmentSourceURL, index: 1)
+        try Data("one".utf8).write(to: segmentURL)
+
+        let segmentResult = AudioSegmenterModel(
+            sourceAudioDuration: .seconds(4),
+            segments: [
+                AudioSegment(index: 1, startTime: "0.000", endTime: "4.000"),
+            ]
+        )
+
+        let progressStore = ProgressStore<AudioTranscriber.Progress>()
+        let workflow = AudioTranscriber(whisperOverride: { arguments in
+            let outputIndex = arguments.firstIndex(of: "--output_dir")!
+            let outputPath = arguments[outputIndex + 1]
+            let transcriptURL = URL(fileURLWithPath: outputPath)
+                .appendingPathComponent("song.json")
+            let transcript = """
+            {
+              "segments": [
+                {
+                  "start": 0.000,
+                  "end": 0.500,
+                  "text": " test",
+                  "words": [
+                    { "start": 0.000, "end": 0.500, "word": " test" }
+                  ]
+                }
+              ]
+            }
+            """
+            try transcript.write(to: transcriptURL, atomically: true, encoding: .utf8)
+        })
+
+        let result = try workflow.transcribeAudio(
+            from: segmentResult,
+            audioSegmentSourceURL: segmentSourceURL,
+            onProgress: { progressStore.append($0) }
+        )
+
+        let progress = progressStore.snapshot()
+        #expect(!progress.isEmpty)
+        #expect(progress.allSatisfy { $0.fractionCompleted >= 0 && $0.fractionCompleted <= 1 })
+        #expect(progress.last?.fractionCompleted == 1)
+        #expect(progress.contains(where: { $0.message?.contains("Starting segment") == true }))
+        #expect(progress.contains(where: { $0.message?.contains("Completed Whisper transcription") == true }))
+        #expect(result.plainLines == ["test"])
+    }
+
+    @Test("Reports progress through async stream")
+    func reportsProgressThroughStream() async throws {
+        let fileManager = FileManager.default
+        let workspace = fileManager.temporaryDirectory
+            .appendingPathComponent("AudioTranscriberTests-\(UUID().uuidString)", isDirectory: true)
+        let segmentsDirectory = workspace.appendingPathComponent("segments", isDirectory: true)
+        try fileManager.createDirectory(at: segmentsDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: workspace) }
+
+        let segmentSourceURL = segmentsDirectory.appendingPathComponent("song.mp3")
+        let segmentURL = AudioSegment.segmentFileURL(from: segmentSourceURL, index: 1)
+        try Data("one".utf8).write(to: segmentURL)
+
+        let segmentResult = AudioSegmenterModel(
+            sourceAudioDuration: .seconds(4),
+            segments: [
+                AudioSegment(index: 1, startTime: "0.000", endTime: "4.000"),
+            ]
+        )
+
+        let workflow = AudioTranscriber(whisperOverride: { arguments in
+            let outputIndex = arguments.firstIndex(of: "--output_dir")!
+            let outputPath = arguments[outputIndex + 1]
+            let transcriptURL = URL(fileURLWithPath: outputPath)
+                .appendingPathComponent("song.json")
+            let transcript = """
+            {
+              "segments": [
+                {
+                  "start": 0.000,
+                  "end": 0.500,
+                  "text": " test",
+                  "words": [
+                    { "start": 0.000, "end": 0.500, "word": " test" }
+                  ]
+                }
+              ]
+            }
+            """
+            try transcript.write(to: transcriptURL, atomically: true, encoding: .utf8)
+        })
+
+        var progressValues: [Double] = []
+        var completed = false
+        for try await event in workflow.transcribeAudioProgressStream(
+            from: segmentResult,
+            audioSegmentSourceURL: segmentSourceURL
+        ) {
+            switch event {
+            case let .progress(progress):
+                progressValues.append(progress.fractionCompleted)
+            case .completed(let result):
+                completed = true
+                #expect(result.plainLines == ["test"])
+            }
+        }
+
+        #expect(completed)
+        #expect(!progressValues.isEmpty)
+        #expect(progressValues.allSatisfy { $0 >= 0 && $0 <= 1 })
+        #expect(progressValues.last == 1)
     }
 }

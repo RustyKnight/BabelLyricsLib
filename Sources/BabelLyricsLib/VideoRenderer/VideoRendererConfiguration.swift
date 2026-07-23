@@ -1,7 +1,7 @@
 import Foundation
 
 /// Configuration for ``VideoRenderer``.
-public struct VideoRendererConfiguration: Sendable {
+public struct VideoRendererConfiguration: Codable, Sendable {
     /// Render resolution.
     public let resolution: VideoRendererResolution
     /// Frames per second.
